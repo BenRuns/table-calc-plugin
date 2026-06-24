@@ -244,7 +244,6 @@ class TableCalcPlugin extends obsidian.Plugin {
       }
     });
 
-    console.log('Table Calc loaded');
   }
 
   attachObserver(leaf) {
@@ -289,7 +288,6 @@ class TableCalcPlugin extends obsidian.Plugin {
     document.querySelectorAll('[data-table-calc]').forEach(el => {
       delete el.dataset.tableCalc;
     });
-    console.log('Table Calc unloaded');
   }
 }
 
