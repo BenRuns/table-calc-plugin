@@ -1,31 +1,23 @@
 /* ─── Coordinate labels ─────────────────────────────────────── */
 
-.table-calc-col-headers th {
+.table-calc-col-headers th,
+table .table-calc-corner,
+table td.table-calc-row-label,
+table th.table-calc-row-label {
   background-color: var(--background-secondary);
   color: var(--text-muted);
   font-size: 0.7em;
   font-weight: 600;
-  letter-spacing: 0.05em;
   text-align: center;
-  padding: 1px 4px;
+  padding: 1px 6px;
   border: 1px solid var(--background-modifier-border);
   user-select: none;
+  min-width: 24px;
 }
 
-.table-calc-corner {
-  background-color: var(--background-secondary) !important;
-}
-
-.table-calc-row-label {
-  background-color: var(--background-secondary) !important;
-  color: var(--text-muted) !important;
-  font-size: 0.7em !important;
-  font-weight: 600 !important;
-  text-align: center !important;
-  padding: 1px 6px !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  min-width: 24px !important;
-  user-select: none;
+.table-calc-col-headers th {
+  letter-spacing: 0.05em;
+  padding: 1px 4px;
 }
 
 /* ─── Formula cells ─────────────────────────────────────────── */
