@@ -1,6 +1,11 @@
 {
   "type": "commonjs",
   "scripts": {
+    "build": "esbuild src/main.js --bundle --external:obsidian --format=cjs --outfile=main.js",
+    "dev": "esbuild src/main.js --bundle --external:obsidian --format=cjs --outfile=main.js --watch",
     "test": "node --test engine.test.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
   }
 }
