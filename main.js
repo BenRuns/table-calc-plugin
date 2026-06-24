@@ -116,18 +116,11 @@ function decorateTable(tableEl) {
   const dataCols = dataRows[0].querySelectorAll('td').length - 1;
 
   // ── Column letter row above the header ──
-  const colLetterRow = document.createElement('tr');
-  colLetterRow.className = 'table-calc-col-headers';
-
-  const corner = document.createElement('th');
-  corner.className = 'table-calc-corner';
-  colLetterRow.appendChild(corner);
+  const colLetterRow = createEl('tr', { cls: 'table-calc-col-headers' });
+  colLetterRow.createEl('th', { cls: 'table-calc-corner' });
 
   for (let c = 0; c < dataCols; c++) {
-    const th = document.createElement('th');
-    th.className = 'table-calc-col-label';
-    th.textContent = LETTERS[c] || String(c + 1);
-    colLetterRow.appendChild(th);
+    colLetterRow.createEl('th', { cls: 'table-calc-col-label', text: LETTERS[c] || String(c + 1) });
   }
 
   const thead = tableEl.querySelector('thead');

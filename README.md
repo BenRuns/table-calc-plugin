@@ -123,7 +123,7 @@ When you click into a formula cell in Live Preview, the raw formula reappears fo
 
 ### Manual Installation
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/YOUR_USERNAME/obsidian-table-calc/releases/latest)
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/BenRuns/table-calc-plugin/releases/latest)
 2. Create a folder: `<your vault>/.obsidian/plugins/table-calc/`
 3. Copy the three files into that folder
 4. In Obsidian: **Settings → Community Plugins → reload → enable Table Calc**
