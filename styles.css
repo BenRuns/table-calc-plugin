@@ -1,0 +1,43 @@
+/* ─── Coordinate labels ─────────────────────────────────────── */
+
+.table-calc-col-headers th {
+  background-color: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: 0.7em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: center;
+  padding: 1px 4px;
+  border: 1px solid var(--background-modifier-border);
+  user-select: none;
+}
+
+.table-calc-corner {
+  background-color: var(--background-secondary) !important;
+}
+
+.table-calc-row-label {
+  background-color: var(--background-secondary) !important;
+  color: var(--text-muted) !important;
+  font-size: 0.7em !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  padding: 1px 6px !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  min-width: 24px !important;
+  user-select: none;
+}
+
+/* ─── Formula cells ─────────────────────────────────────────── */
+
+.table-calc-cell {
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+
+.table-calc-error-cell {
+  color: var(--text-error);
+  font-size: 0.85em;
+  cursor: help;
+}
