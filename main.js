@@ -228,7 +228,7 @@ class TableCalcPlugin extends obsidian.Plugin {
 
     // Manual command
     this.addCommand({
-      id: 'table-calc-evaluate',
+      id: 'evaluate',
       name: 'Evaluate table formulas in this note',
       checkCallback: (checking) => {
         const view = this.app.workspace.getActiveViewOfType(obsidian.MarkdownView);
