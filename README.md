@@ -176,6 +176,7 @@ This means your notes remain portable: open them anywhere and you'll see the raw
 - A cell counts as numeric only if it's a complete, well-formed number. `1,234` (thousands separator), `5 apples` (trailing text), and the literal text `Infinity`/`NaN` are all treated as **text**, not as the number they might resemble — they contribute `0` to sums/averages and are excluded from `COUNT`. This is intentional: `parseFloat` in JavaScript would otherwise silently read `1,234` as `1` and the string `"Infinity"` as the number `Infinity`.
 - Numbers are standard JavaScript doubles (IEEE 754), the same numeric type spreadsheets like Excel use. Integers beyond `2^53` (~9 quadrillion) lose precision, and results are snapped to 8 decimal places to absorb ordinary binary floating-point drift (e.g. `0.1+0.2` reliably shows `0.3`, not `0.30000000000000004`)
 - `ROUND` rounds half away from zero (`ROUND(2.5,0)` → `3`, `ROUND(-2.5,0)` → `-3`), matching spreadsheet conventions rather than JavaScript's native `Math.round` (which rounds `-2.5` to `-2`)
+- References are positional, not tracked. `A2` always means "column A, row 2 of the table as it exists right now" — there's no concept of a formula "belonging" to a row. If you insert, delete, or reorder rows, formula text doesn't shift to compensate, so a formula can silently start pointing at the wrong cells. Re-check (or rewrite) formulas after restructuring a table. This is intentional: the plugin never modifies your markdown source, and auto-shifting references would require doing exactly that
 
 ---
 
