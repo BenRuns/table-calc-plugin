@@ -43,11 +43,28 @@ Tables without `{calc}` are left completely untouched.
 | `=SUM(A1:A5)` | Sum a range | `=SUM(D1:D3)` |
 | `=AVG(A1:A5)` | Average of a range | `=AVG(B1:B4)` |
 | `=AVERAGE(A1:A5)` | Same as AVG | |
+| `=MEDIAN(A1:A5)` | Median of a range | `=MEDIAN(B1:B5)` |
 | `=MIN(A1:A5)` | Smallest value | `=MIN(B1:B10)` |
 | `=MAX(A1:A5)` | Largest value | `=MAX(B1:B10)` |
 | `=COUNT(A1:A5)` | Count numeric cells | `=COUNT(A1:A5)` |
+| `=COUNTA(A1:A5)` | Count non-empty cells (numbers or text) | `=COUNTA(A1:A5)` |
+| `=PRODUCT(A1:A5)` | Multiply a range together | `=PRODUCT(B1:B3)` |
+| `=STDEV(A1:A5)` | Sample standard deviation | `=STDEV(B1:B10)` |
+| `=VAR(A1:A5)` | Sample variance | `=VAR(B1:B10)` |
 | `=ABS(A1)` | Absolute value | `=ABS(A3)` |
 | `=ROUND(A1, 2)` | Round to N decimals | `=ROUND(B1, 2)` |
+| `=FLOOR(A1)` | Round down to nearest integer | `=FLOOR(B1)` |
+| `=CEIL(A1)` / `=CEILING(A1)` | Round up to nearest integer | `=CEIL(B1)` |
+| `=TRUNC(A1, 2)` | Truncate to N decimals (no rounding) | `=TRUNC(B1, 2)` |
+| `=INT(A1)` | Round down to integer | `=INT(B1)` |
+| `=SIGN(A1)` | -1, 0, or 1 depending on sign | `=SIGN(B1)` |
+| `=SQRT(A1)` | Square root | `=SQRT(B1)` |
+| `=POW(A1, B1)` / `=POWER(A1, B1)` | Exponentiation | `=POW(2, 10)` |
+| `=MOD(A1, B1)` | Remainder of division | `=MOD(A1, 3)` |
+| `=EXP(A1)` | e raised to the power of x | `=EXP(1)` |
+| `=LOG(A1)` / `=LOG(A1, base)` | Natural log, or log to a given base | `=LOG(8, 2)` |
+| `=LOG10(A1)` | Base-10 logarithm | `=LOG10(100)` |
+| `=PI()` | The constant π | `=ROUND(PI(), 2)` |
 
 ### Arithmetic
 
@@ -57,6 +74,7 @@ Tables without `{calc}` are left completely untouched.
 | `-` | `=A1-B1` |
 | `*` | `=B1*C1` |
 | `/` | `=A1/B1` |
+| `^` | `=A1^2` (exponent) |
 | Grouped | `=(A1+B1)*C1` |
 
 ### Mixed

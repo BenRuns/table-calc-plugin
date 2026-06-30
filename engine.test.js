@@ -219,6 +219,87 @@ test('README sales: revenue and tax columns', () => {
   assert.equal(evalFormula('=SUM(D1:D2)', grid), 691);
 });
 
+// ─── evalFormula — exponent operator ─────────────────────────────────────────
+
+test('exponent: ^ translates to power', () => {
+  const grid = [['2', '3']];
+  assert.equal(evalFormula('=2^3', grid), 8);
+  assert.equal(evalFormula('=A1^B1', grid), 8);
+  assert.equal(evalFormula('=2^3+1', grid), 9);
+  assert.equal(evalFormula('=(1+1)^3', grid), 8);
+});
+
+// ─── evalFormula — new math functions ────────────────────────────────────────
+
+test('SQRT: basic and negative input errors', () => {
+  const grid = [['16']];
+  assert.equal(evalFormula('=SQRT(A1)', grid), 4);
+  assert.equal(evalFormula('=SQRT(16)', grid), 4);
+  assert.equal(evalFormula('=SQRT(-4)', grid), '#ERR');
+});
+
+test('POW/POWER: exponentiation', () => {
+  const grid = [['2', '10']];
+  assert.equal(evalFormula('=POW(A1,3)', grid), 8);
+  assert.equal(evalFormula('=POWER(2,10)', grid), 1024);
+});
+
+test('MOD: remainder and divide-by-zero error', () => {
+  const grid = [];
+  assert.equal(evalFormula('=MOD(10,3)', grid), 1);
+  assert.equal(evalFormula('=MOD(10,0)', grid), '#ERR');
+});
+
+test('MEDIAN: odd and even counts', () => {
+  const grid = [['1'], ['3'], ['2']];
+  assert.equal(evalFormula('=MEDIAN(A1:A3)', grid), 2);
+  const grid2 = [['1'], ['2'], ['3'], ['4']];
+  assert.equal(evalFormula('=MEDIAN(A1:A4)', grid2), 2.5);
+  assert.equal(evalFormula('=MEDIAN(A1:A1)', []), 0);
+});
+
+test('PRODUCT: multiplies range', () => {
+  const grid = [['2'], ['3'], ['4']];
+  assert.equal(evalFormula('=PRODUCT(A1:A3)', grid), 24);
+});
+
+test('FLOOR/CEIL/CEILING/TRUNC/INT/SIGN', () => {
+  const grid = [['3.7']];
+  assert.equal(evalFormula('=FLOOR(A1)', grid), 3);
+  assert.equal(evalFormula('=CEIL(A1)', grid), 4);
+  assert.equal(evalFormula('=CEILING(A1)', grid), 4);
+  assert.equal(evalFormula('=INT(A1)', grid), 3);
+  assert.equal(evalFormula('=TRUNC(3.14159,2)', []), 3.14);
+  assert.equal(evalFormula('=SIGN(-5)', []), -1);
+  assert.equal(evalFormula('=SIGN(5)', []), 1);
+  assert.equal(evalFormula('=SIGN(0)', []), 0);
+});
+
+test('EXP/LOG/LOG10/PI', () => {
+  assert.equal(evalFormula('=LOG10(100)', []), 2);
+  assert.equal(evalFormula('=LOG(8,2)', []), 3);
+  assert.equal(evalFormula('=ROUND(PI(),2)', []), 3.14);
+  assert.equal(evalFormula('=ROUND(EXP(1),2)', []), 2.72);
+});
+
+test('STDEV/VAR: sample statistics', () => {
+  const grid = [['2'], ['4'], ['4'], ['4'], ['5'], ['5'], ['7'], ['9']];
+  assert.equal(evalFormula('=ROUND(VAR(A1:A8),2)', grid), 4.57);
+  assert.equal(evalFormula('=ROUND(STDEV(A1:A8),2)', grid), 2.14);
+  assert.equal(evalFormula('=STDEV(A1:A1)', [['5']]), 0);
+});
+
+test('COUNTA: counts non-empty cells including text', () => {
+  const grid = [['10'], ['hello'], [''], ['30']];
+  assert.equal(evalFormula('=COUNTA(A1:A4)', grid), 3);
+});
+
+test('mixed: new functions nest and combine with arithmetic', () => {
+  const grid = [['9', '16']];
+  assert.equal(evalFormula('=SQRT(A1)+SQRT(B1)', grid), 7); // 3+4
+  assert.equal(evalFormula('=MOD(A1,4)^2', grid), 1); // 9 mod 4 = 1, 1^2 = 1
+});
+
 // ─── formatResult ─────────────────────────────────────────────────────────────
 
 test('formatResult: integers stay integers', () => {

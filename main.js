@@ -67,12 +67,14 @@ var require_engine = __commonJS({
       let passes = 0;
       do {
         prevExpr = expr;
-        expr = expr.replace(/([A-Z]+)\(([^()]*)\)/gi, function(_, fn, args) {
+        expr = expr.replace(/([A-Z][A-Z0-9]*)\(([^()]*)\)/gi, function(_, fn, args) {
           if (earlyError) return 0;
           const pairs = resolveArgs(args, grid, depth);
           const nums = pairs.map((p) => p.num).filter((v) => typeof v === "number" && isFinite(v));
           const numericCount = pairs.filter((p) => p.raw !== "" && !isNaN(parseFloat(p.raw))).length;
+          const nonEmptyCount = pairs.filter((p) => p.raw !== "").length;
           const sum = nums.reduce((a, b) => a + b, 0);
+          const sorted = [...nums].sort((a, b) => a - b);
           switch (fn.toUpperCase()) {
             case "SUM":
               return sum;
@@ -85,10 +87,54 @@ var require_engine = __commonJS({
               return nums.length ? Math.max(...nums) : 0;
             case "COUNT":
               return numericCount;
+            case "COUNTA":
+              return nonEmptyCount;
             case "ABS":
               return Math.abs(nums[0] || 0);
             case "ROUND":
               return Math.round((nums[0] || 0) * Math.pow(10, nums[1] || 0)) / Math.pow(10, nums[1] || 0);
+            case "FLOOR":
+              return Math.floor(nums[0] || 0);
+            case "CEIL":
+            case "CEILING":
+              return Math.ceil(nums[0] || 0);
+            case "TRUNC": {
+              const f = Math.pow(10, nums[1] || 0);
+              return Math.trunc((nums[0] || 0) * f) / f;
+            }
+            case "INT":
+              return Math.floor(nums[0] || 0);
+            case "SIGN":
+              return Math.sign(nums[0] || 0);
+            case "SQRT":
+              return Math.sqrt(nums[0] || 0);
+            case "POW":
+            case "POWER":
+              return Math.pow(nums[0], nums[1]);
+            case "MOD":
+              return nums[0] % nums[1];
+            case "EXP":
+              return Math.exp(nums[0] || 0);
+            case "LOG":
+              return nums.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log(nums[0]);
+            case "LOG10":
+              return Math.log10(nums[0]);
+            case "PI":
+              return Math.PI;
+            case "MEDIAN": {
+              if (!sorted.length) return 0;
+              const mid = Math.floor(sorted.length / 2);
+              return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            }
+            case "PRODUCT":
+              return nums.length ? nums.reduce((a, b) => a * b, 1) : 0;
+            case "STDEV":
+            case "VAR": {
+              if (nums.length < 2) return 0;
+              const mean = sum / nums.length;
+              const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1);
+              return fn.toUpperCase() === "VAR" ? variance : Math.sqrt(variance);
+            }
             default:
               earlyError = "#NAME?";
               return 0;
@@ -100,6 +146,7 @@ var require_engine = __commonJS({
         const pos = parseRef(ref);
         return pos ? getGridValue(grid, pos.r, pos.c, depth) : 0;
       });
+      expr = expr.replace(/\^/g, "**");
       if (!/^[\d\s+\-*\/().%]+$/.test(expr)) return "#ERR";
       try {
         const result = Function('"use strict"; return (' + expr + ")")();

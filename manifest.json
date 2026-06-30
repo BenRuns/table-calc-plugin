@@ -1,7 +1,7 @@
 {
   "id": "table-calc",
   "name": "Table Calc",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "minAppVersion": "1.4.0",
   "description": "Adds formula support to markdown tables. Use =SUM(A1:A5), =AVG(B1:B3), =A1*B1, etc. in any table cell.",
   "author": "Benjamin Patterson",
