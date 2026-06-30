@@ -300,6 +300,109 @@ test('mixed: new functions nest and combine with arithmetic', () => {
   assert.equal(evalFormula('=MOD(A1,4)^2', grid), 1); // 9 mod 4 = 1, 1^2 = 1
 });
 
+// ─── evalFormula — floating point precision ──────────────────────────────────
+
+test('floating point: classic binary drift in addition is snapped away', () => {
+  // 0.1 + 0.2 === 0.30000000000000004 in raw JS arithmetic.
+  assert.equal(evalFormula('=0.1+0.2', []), 0.3);
+  assert.equal(evalFormula('=19.99+5.01', []), 25);
+  assert.equal(evalFormula('=0.1+0.2-0.3', []), 0);
+});
+
+test('floating point: SUM of currency-like values avoids drift', () => {
+  const grid = [['19.99'], ['5.01'], ['0.01']];
+  assert.equal(evalFormula('=SUM(A1:A3)', grid), 25.01);
+});
+
+test('floating point: ROUND fixes the classic 1.005 rounding bug', () => {
+  // Math.round(1.005 * 100) / 100 === 1 in naive JS (1.005*100 === 100.49999999999999).
+  assert.equal(evalFormula('=ROUND(1.005,2)', []), 1.01);
+  assert.equal(evalFormula('=ROUND(1.015,2)', []), 1.02);
+  assert.equal(evalFormula('=ROUND(1.45,1)', []), 1.5);
+});
+
+test('floating point: ROUND ties break away from zero, not toward +Infinity', () => {
+  // Math.round(-2.5) === -2 in raw JS; spreadsheets round half away from zero.
+  assert.equal(evalFormula('=ROUND(-2.5,0)', []), -3);
+  assert.equal(evalFormula('=ROUND(2.5,0)', []), 3);
+  assert.equal(evalFormula('=ROUND(-1.005,2)', []), -1.01);
+});
+
+test('floating point: ROUND supports negative decimal places', () => {
+  assert.equal(evalFormula('=ROUND(1234,-2)', []), 1200);
+  assert.equal(evalFormula('=ROUND(1250,-2)', []), 1300);
+});
+
+test('floating point: TRUNC truncates without rounding, including negatives', () => {
+  assert.equal(evalFormula('=TRUNC(8.9,0)', []), 8);
+  assert.equal(evalFormula('=TRUNC(-8.9,0)', []), -8);
+  assert.equal(evalFormula('=TRUNC(3.14159,2)', []), 3.14);
+});
+
+test('floating point: negative zero normalizes to 0', () => {
+  const zero = evalFormula('=0*-1', []);
+  assert.equal(Object.is(zero, -0), false);
+  assert.equal(zero, 0);
+  assert.equal(evalFormula('=-0+0', []), 0);
+});
+
+// ─── evalFormula — scientific notation ───────────────────────────────────────
+
+test('scientific notation: tiny function results no longer error out', () => {
+  // ABS(-0.0000001) === 1e-7, and JS stringifies that as "1e-7" — embedding
+  // that back into the expression used to fail the safe-math whitelist.
+  assert.equal(evalFormula('=ABS(-0.0000001)', []), 0.0000001);
+});
+
+test('scientific notation: tiny/huge cell references no longer error out', () => {
+  const grid = [['0.0000001', '3000000000000000000000']];
+  assert.equal(evalFormula('=A1+0', grid), 0.0000001);
+  assert.equal(evalFormula('=B1/3', grid), 1e21);
+});
+
+test('scientific notation: literal exponent syntax in a formula', () => {
+  assert.equal(evalFormula('=1e3+1', []), 1001);
+  assert.equal(evalFormula('=2.5E2', []), 250);
+});
+
+// ─── evalFormula — parseFloat gotchas ────────────────────────────────────────
+
+test('parseFloat gotcha: literal "Infinity" text is not numeric', () => {
+  const grid = [['Infinity'], ['10']];
+  assert.equal(evalFormula('=SUM(A1:A2)', grid), 10); // "Infinity" contributes 0, not Infinity
+  assert.equal(evalFormula('=COUNT(A1:A2)', grid), 1);
+  assert.equal(evalFormula('=A1+5', grid), 5); // text cell treated as 0, not Infinity
+});
+
+test('parseFloat gotcha: comma thousands separators are not silently truncated', () => {
+  // parseFloat('1,234') === 1 in raw JS — silently wrong rather than erroring.
+  // We now treat the whole cell as non-numeric text instead of guessing 1.
+  const grid = [['1,234'], ['10']];
+  assert.equal(evalFormula('=SUM(A1:A2)', grid), 10);
+  assert.equal(evalFormula('=COUNT(A1:A2)', grid), 1);
+});
+
+test('parseFloat gotcha: trailing garbage is not partially parsed', () => {
+  const grid = [['5 apples']];
+  assert.equal(evalFormula('=A1', grid), 0);
+  assert.equal(evalFormula('=COUNT(A1:A1)', grid), 0);
+});
+
+// ─── evalFormula — robustness against runtime exceptions ────────────────────
+
+test('robustness: MIN/MAX over a large range does not stack-overflow', () => {
+  const grid = Array.from({ length: 5000 }, (_, i) => [String(i)]);
+  assert.equal(evalFormula('=MAX(A1:A5000)', grid), 4999);
+  assert.equal(evalFormula('=MIN(A1:A5000)', grid), 0);
+  assert.equal(evalFormula('=SUM(A1:A5000)', grid), (4999 * 5000) / 2);
+});
+
+test('robustness: malformed expressions return #ERR instead of throwing', () => {
+  assert.equal(evalFormula('=)(', []), '#ERR');
+  assert.equal(evalFormula('=1+', []), '#ERR');
+  assert.equal(evalFormula('=', []), '#ERR');
+});
+
 // ─── formatResult ─────────────────────────────────────────────────────────────
 
 test('formatResult: integers stay integers', () => {

@@ -76,6 +76,7 @@ Tables without `{calc}` are left completely untouched.
 | `/` | `=A1/B1` |
 | `^` | `=A1^2` (exponent) |
 | Grouped | `=(A1+B1)*C1` |
+| Scientific notation | `=1e3+1` → `1001` |
 
 ### Mixed
 
@@ -171,6 +172,10 @@ This means your notes remain portable: open them anywhere and you'll see the raw
 - Column letters support A–Z (26 columns max)
 - Circular references are stopped at depth 20 and return `0`
 - Formulas only evaluate in **Live Preview** and **Reading** view, not in Source mode
+- Function arguments must be cell references, ranges, or literal numbers — not inline expressions (use `=ABS(A1)`, not `=ABS(A1-B1)`)
+- A cell counts as numeric only if it's a complete, well-formed number. `1,234` (thousands separator), `5 apples` (trailing text), and the literal text `Infinity`/`NaN` are all treated as **text**, not as the number they might resemble — they contribute `0` to sums/averages and are excluded from `COUNT`. This is intentional: `parseFloat` in JavaScript would otherwise silently read `1,234` as `1` and the string `"Infinity"` as the number `Infinity`.
+- Numbers are standard JavaScript doubles (IEEE 754), the same numeric type spreadsheets like Excel use. Integers beyond `2^53` (~9 quadrillion) lose precision, and results are snapped to 8 decimal places to absorb ordinary binary floating-point drift (e.g. `0.1+0.2` reliably shows `0.3`, not `0.30000000000000004`)
+- `ROUND` rounds half away from zero (`ROUND(2.5,0)` → `3`, `ROUND(-2.5,0)` → `-3`), matching spreadsheet conventions rather than JavaScript's native `Math.round` (which rounds `-2.5` to `-2`)
 
 ---
 
