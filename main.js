@@ -56,8 +56,7 @@ var require_engine = __commonJS({
           vals.push({ num: getGridValue(grid, ref.r, ref.c, depth), raw });
           continue;
         }
-        const n = parseCellNumber(t);
-        if (!isNaN(n)) vals.push({ num: n, raw: t });
+        vals.push({ num: parseCellNumber(t), raw: t });
       }
       return vals;
     }
@@ -73,6 +72,10 @@ var require_engine = __commonJS({
     function preciseTrunc(num, decimals) {
       return shiftDecimal(Math.trunc(shiftDecimal(num, decimals)), -decimals);
     }
+    function spreadsheetMod(a, b) {
+      const r = a % b;
+      return r !== 0 && r < 0 !== b < 0 ? r + b : r;
+    }
     function evalFormula2(formula, grid, depth) {
       if (depth === void 0) depth = 20;
       if (!formula || !formula.startsWith("=")) return formula;
@@ -87,76 +90,111 @@ var require_engine = __commonJS({
             if (earlyError) return 0;
             const pairs = resolveArgs(args, grid, depth);
             const nums = pairs.map((p) => p.num).filter((v) => typeof v === "number" && isFinite(v));
-            const numericCount = pairs.filter((p) => p.raw !== "" && !isNaN(parseCellNumber(p.raw))).length;
-            const nonEmptyCount = pairs.filter((p) => p.raw !== "").length;
-            const sum = nums.reduce((a, b) => a + b, 0);
-            const sorted = [...nums].sort((a, b) => a - b);
+            const numericVals = pairs.filter((p) => p.raw !== "" && !isNaN(parseCellNumber(p.raw))).map((p) => p.num);
+            let result2;
             switch (fn.toUpperCase()) {
               case "SUM":
-                return sum;
+                result2 = nums.reduce((a, b) => a + b, 0);
+                break;
               case "AVG":
               case "AVERAGE":
-                return nums.length ? sum / nums.length : 0;
+                result2 = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+                break;
               // reduce (not Math.min/max(...nums)) avoids RangeError: Maximum
               // call stack size exceeded when spreading very large ranges.
               case "MIN":
-                return nums.length ? nums.reduce((a, b) => Math.min(a, b)) : 0;
+                result2 = numericVals.length ? numericVals.reduce((a, b) => Math.min(a, b)) : 0;
+                break;
               case "MAX":
-                return nums.length ? nums.reduce((a, b) => Math.max(a, b)) : 0;
+                result2 = numericVals.length ? numericVals.reduce((a, b) => Math.max(a, b)) : 0;
+                break;
               case "COUNT":
-                return numericCount;
+                result2 = numericVals.length;
+                break;
               case "COUNTA":
-                return nonEmptyCount;
+                result2 = pairs.filter((p) => p.raw !== "").length;
+                break;
               case "ABS":
-                return Math.abs(nums[0] || 0);
+                result2 = Math.abs(nums[0] || 0);
+                break;
               case "ROUND":
-                return preciseRound(nums[0] || 0, nums[1] || 0);
+                result2 = preciseRound(nums[0] || 0, nums[1] || 0);
+                break;
               case "FLOOR":
-                return Math.floor(nums[0] || 0);
+              case "INT":
+                result2 = Math.floor(nums[0] || 0);
+                break;
               case "CEIL":
               case "CEILING":
-                return Math.ceil(nums[0] || 0);
+                result2 = Math.ceil(nums[0] || 0);
+                break;
               case "TRUNC":
-                return preciseTrunc(nums[0] || 0, nums[1] || 0);
-              case "INT":
-                return Math.floor(nums[0] || 0);
+                result2 = preciseTrunc(nums[0] || 0, nums[1] || 0);
+                break;
               case "SIGN":
-                return Math.sign(nums[0] || 0);
+                result2 = Math.sign(nums[0] || 0);
+                break;
               case "SQRT":
-                return Math.sqrt(nums[0] || 0);
+                result2 = Math.sqrt(nums[0] || 0);
+                break;
               case "POW":
               case "POWER":
-                return Math.pow(nums[0], nums[1]);
+                result2 = Math.pow(nums[0] || 0, nums[1] || 0);
+                break;
               case "MOD":
-                return nums[0] % nums[1];
+                result2 = spreadsheetMod(nums[0] || 0, nums[1] || 0);
+                break;
               case "EXP":
-                return Math.exp(nums[0] || 0);
+                result2 = Math.exp(nums[0] || 0);
+                break;
+              // pairs.length (not nums.length) decides arg count: nums silently
+              // drops invalid/non-numeric entries, which previously made
+              // LOG(8, <bad literal>) look like a 1-arg call and fall back to
+              // natural log instead of erroring.
               case "LOG":
-                return nums.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log(nums[0]);
+                result2 = pairs.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log(nums[0]);
+                break;
               case "LOG10":
-                return Math.log10(nums[0]);
+                result2 = Math.log10(nums[0]);
+                break;
               case "PI":
-                return Math.PI;
+                result2 = Math.PI;
+                break;
               case "MEDIAN": {
-                if (!sorted.length) return 0;
+                const sorted = [...numericVals].sort((a, b) => a - b);
+                if (!sorted.length) {
+                  result2 = 0;
+                  break;
+                }
                 const mid = Math.floor(sorted.length / 2);
-                return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+                result2 = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+                break;
               }
               case "PRODUCT":
-                return nums.length ? nums.reduce((a, b) => a * b, 1) : 0;
+                result2 = numericVals.length ? numericVals.reduce((a, b) => a * b, 1) : 0;
+                break;
               case "STDEV":
               case "VAR": {
-                if (nums.length < 2) return 0;
-                const mean = sum / nums.length;
-                const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1);
-                return fn.toUpperCase() === "VAR" ? variance : Math.sqrt(variance);
+                if (numericVals.length < 2) {
+                  result2 = 0;
+                  break;
+                }
+                const mean = numericVals.reduce((a, b) => a + b, 0) / numericVals.length;
+                const variance = numericVals.reduce((a, b) => a + (b - mean) ** 2, 0) / (numericVals.length - 1);
+                result2 = fn.toUpperCase() === "VAR" ? variance : Math.sqrt(variance);
+                break;
               }
               default:
                 earlyError = "#NAME?";
                 return 0;
             }
+            if (typeof result2 !== "number" || !isFinite(result2)) {
+              earlyError = "#ERR";
+              return 0;
+            }
+            return result2;
           });
-        } while (!earlyError && expr !== prevExpr && ++passes < 10);
+        } while (!earlyError && expr !== prevExpr && ++passes < 100);
         if (earlyError) return earlyError;
         expr = expr.replace(/\b([A-Z]\d+)\b/gi, function(_, ref) {
           const pos = parseRef(ref);
@@ -166,7 +204,7 @@ var require_engine = __commonJS({
         if (!/^[\d\s+\-*\/().%eE]+$/.test(expr)) return "#ERR";
         const result = Function('"use strict"; return (' + expr + ")")();
         if (typeof result !== "number" || !isFinite(result)) return "#ERR";
-        return Number.isInteger(result) ? result || 0 : parseFloat(result.toFixed(8));
+        return Number.isInteger(result) ? result || 0 : parseFloat(result.toFixed(8)) || 0;
       } catch (e) {
         return "#ERR";
       }

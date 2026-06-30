@@ -403,6 +403,76 @@ test('robustness: malformed expressions return #ERR instead of throwing', () => 
   assert.equal(evalFormula('=', []), '#ERR');
 });
 
+test('robustness: a deeply nested formula resolves past the old 10-pass cap', () => {
+  let f = '-1';
+  for (let i = 0; i < 15; i++) f = `ABS(${f})`;
+  assert.equal(evalFormula('=' + f, []), 1);
+});
+
+// ─── evalFormula — nested function errors propagate ──────────────────────────
+
+test('nested errors: a NaN/Infinity-producing inner call invalidates the whole formula', () => {
+  assert.equal(evalFormula('=SQRT(-4)', []), '#ERR');
+  assert.equal(evalFormula('=ROUND(SQRT(-4),2)', []), '#ERR');
+  assert.equal(evalFormula('=SUM(SQRT(-4),5)', []), '#ERR');
+  assert.equal(evalFormula('=AVG(LOG(0),5)', []), '#ERR');
+  assert.equal(evalFormula('=MAX(LOG(-1),5)', []), '#ERR');
+});
+
+// ─── evalFormula — non-numeric cells excluded from MIN/MAX/MEDIAN/PRODUCT/STDEV/VAR ─
+
+test('non-numeric cells: PRODUCT skips text cells instead of zeroing the whole result', () => {
+  const grid = [['2'], ['text'], ['4']];
+  assert.equal(evalFormula('=PRODUCT(A1:A3)', grid), 8);
+});
+
+test('non-numeric cells: MEDIAN/STDEV/VAR skip text cells instead of treating them as 0', () => {
+  const grid = [['1'], ['text'], ['3']];
+  assert.equal(evalFormula('=MEDIAN(A1:A3)', grid), 2);
+  // Without the fix, the phantom 0 from 'text' would count as a third data
+  // point and STDEV(A1:A3) would be nonzero instead of 0.
+  const grid2 = [['5'], ['text'], ['5']];
+  assert.equal(evalFormula('=STDEV(A1:A3)', grid2), 0);
+});
+
+test('non-numeric cells: MIN/MAX skip text cells instead of treating them as 0', () => {
+  const grid = [['5'], ['text'], ['10']];
+  assert.equal(evalFormula('=MIN(A1:A3)', grid), 5);
+  assert.equal(evalFormula('=MAX(A1:A3)', grid), 10);
+});
+
+// ─── evalFormula — LOG argument validation ────────────────────────────────────
+
+test('LOG: an invalid literal base errors instead of silently falling back to natural log', () => {
+  assert.equal(evalFormula('=LOG(8,abc)', []), '#ERR');
+  assert.equal(evalFormula('=LOG(8,2)', []), 3);
+  assert.equal(evalFormula('=LOG(8)', []), parseFloat(Math.log(8).toFixed(8)));
+});
+
+// ─── evalFormula — MOD spreadsheet sign semantics ─────────────────────────────
+
+test('MOD: result takes the sign of the divisor, matching spreadsheet conventions', () => {
+  assert.equal(evalFormula('=MOD(-7,3)', []), 2);
+  assert.equal(evalFormula('=MOD(7,-3)', []), -2);
+  assert.equal(evalFormula('=MOD(-7,-3)', []), -1);
+  assert.equal(evalFormula('=MOD(7,3)', []), 1);
+});
+
+// ─── evalFormula — POW/MOD missing-argument handling ──────────────────────────
+
+test('POW/MOD: a missing argument defaults to 0, consistent with sibling functions', () => {
+  assert.equal(evalFormula('=POW(2)', []), 1); // 2^0
+  assert.equal(evalFormula('=MOD(5)', []), '#ERR'); // 5 % 0
+});
+
+// ─── evalFormula — -0 normalization on non-integer results ───────────────────
+
+test('floating point: -0 normalizes to 0 on non-integer results too', () => {
+  const r = evalFormula('=-0.000000001*1', []);
+  assert.equal(Object.is(r, -0), false);
+  assert.equal(r, 0);
+});
+
 // ─── formatResult ─────────────────────────────────────────────────────────────
 
 test('formatResult: integers stay integers', () => {

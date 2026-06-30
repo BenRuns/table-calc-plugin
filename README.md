@@ -60,7 +60,7 @@ Tables without `{calc}` are left completely untouched.
 | `=SIGN(A1)` | -1, 0, or 1 depending on sign | `=SIGN(B1)` |
 | `=SQRT(A1)` | Square root | `=SQRT(B1)` |
 | `=POW(A1, B1)` / `=POWER(A1, B1)` | Exponentiation | `=POW(2, 10)` |
-| `=MOD(A1, B1)` | Remainder of division | `=MOD(A1, 3)` |
+| `=MOD(A1, B1)` | Remainder of division (result takes the sign of the divisor, e.g. `MOD(-7,3)` → `2`) | `=MOD(A1, 3)` |
 | `=EXP(A1)` | e raised to the power of x | `=EXP(1)` |
 | `=LOG(A1)` / `=LOG(A1, base)` | Natural log, or log to a given base | `=LOG(8, 2)` |
 | `=LOG10(A1)` | Base-10 logarithm | `=LOG10(100)` |
@@ -96,8 +96,10 @@ Combine functions and arithmetic freely:
 
 | Error | Cause |
 |-------|-------|
-| `#ERR` | Invalid expression or divide by zero |
+| `#ERR` | Invalid expression, divide by zero, or any other non-finite result (e.g. `SQRT` of a negative number) |
 | `#NAME?` | Unknown function name |
+
+A function that produces `#ERR` invalidates the whole formula, even when nested inside another function — `=SUM(SQRT(-4), 5)` is `#ERR`, not `5`.
 
 ---
 
@@ -173,7 +175,8 @@ This means your notes remain portable: open them anywhere and you'll see the raw
 - Circular references are stopped at depth 20 and return `0`
 - Formulas only evaluate in **Live Preview** and **Reading** view, not in Source mode
 - Function arguments must be cell references, ranges, or literal numbers — not inline expressions (use `=ABS(A1)`, not `=ABS(A1-B1)`)
-- A cell counts as numeric only if it's a complete, well-formed number. `1,234` (thousands separator), `5 apples` (trailing text), and the literal text `Infinity`/`NaN` are all treated as **text**, not as the number they might resemble — they contribute `0` to sums/averages and are excluded from `COUNT`. This is intentional: `parseFloat` in JavaScript would otherwise silently read `1,234` as `1` and the string `"Infinity"` as the number `Infinity`.
+- A cell counts as numeric only if it's a complete, well-formed number. `1,234` (thousands separator), `5 apples` (trailing text), and the literal text `Infinity`/`NaN` are all treated as **text**, not as the number they might resemble — they're excluded from `COUNT`. This is intentional: `parseFloat` in JavaScript would otherwise silently read `1,234` as `1` and the string `"Infinity"` as the number `Infinity`.
+- Non-numeric cells are handled differently depending on the function: `SUM`/`AVG` treat them as contributing `0` (so a stray text cell skews a total or average rather than being skipped). `MIN`, `MAX`, `MEDIAN`, `PRODUCT`, `STDEV`, and `VAR` instead **exclude** non-numeric cells entirely, since a phantom `0` would distort those results far more severely (e.g. zeroing out an entire `PRODUCT`, or pulling a `MEDIAN`/`STDEV` toward a value no cell actually contains).
 - Numbers are standard JavaScript doubles (IEEE 754), the same numeric type spreadsheets like Excel use. Integers beyond `2^53` (~9 quadrillion) lose precision, and results are snapped to 8 decimal places to absorb ordinary binary floating-point drift (e.g. `0.1+0.2` reliably shows `0.3`, not `0.30000000000000004`)
 - `ROUND` rounds half away from zero (`ROUND(2.5,0)` → `3`, `ROUND(-2.5,0)` → `-3`), matching spreadsheet conventions rather than JavaScript's native `Math.round` (which rounds `-2.5` to `-2`)
 - References are positional, not tracked. `A2` always means "column A, row 2 of the table as it exists right now" — there's no concept of a formula "belonging" to a row. If you insert, delete, or reorder rows, formula text doesn't shift to compensate, so a formula can silently start pointing at the wrong cells. Re-check (or rewrite) formulas after restructuring a table. This is intentional: the plugin never modifies your markdown source, and auto-shifting references would require doing exactly that

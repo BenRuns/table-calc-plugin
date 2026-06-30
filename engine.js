@@ -57,8 +57,11 @@ function resolveArgs(argsStr, grid, depth) {
       vals.push({ num: getGridValue(grid, ref.r, ref.c, depth), raw });
       continue;
     }
-    const n = parseCellNumber(t);
-    if (!isNaN(n)) vals.push({ num: n, raw: t });
+    // Always push literal tokens, even unparseable ones (num: NaN) — callers
+    // that care about "was an argument provided" (e.g. LOG's 1-arg-vs-2-arg
+    // check) need an accurate arg count; silently dropping invalid literals
+    // previously made e.g. LOG(8, abc) look like a 1-arg call.
+    vals.push({ num: parseCellNumber(t), raw: t });
   }
   return vals;
 }
@@ -84,6 +87,13 @@ function preciseTrunc(num, decimals) {
   return shiftDecimal(Math.trunc(shiftDecimal(num, decimals)), -decimals);
 }
 
+// JS's `%` returns a result with the sign of the dividend (-7 % 3 === -1);
+// spreadsheets define MOD as taking the sign of the divisor (MOD(-7,3) === 2).
+function spreadsheetMod(a, b) {
+  const r = a % b;
+  return r !== 0 && (r < 0) !== (b < 0) ? r + b : r;
+}
+
 function evalFormula(formula, grid, depth) {
   if (depth === undefined) depth = 20;
   if (!formula || !formula.startsWith('=')) return formula;
@@ -101,54 +111,79 @@ function evalFormula(formula, grid, depth) {
       expr = expr.replace(/([A-Z][A-Z0-9]*)\(([^()]*)\)/gi, function(_, fn, args) {
         if (earlyError) return 0;
         const pairs = resolveArgs(args, grid, depth);
+        // `nums`: every resolved value, including the 0s that blank/text
+        // range cells contribute — matches the documented SUM/AVG convention
+        // (a non-numeric cell "contributes 0" rather than being skipped).
         const nums = pairs.map(p => p.num).filter(v => typeof v === 'number' && isFinite(v));
-        const numericCount = pairs.filter(p => p.raw !== '' && !isNaN(parseCellNumber(p.raw))).length;
-        const nonEmptyCount = pairs.filter(p => p.raw !== '').length;
-        const sum = nums.reduce((a, b) => a + b, 0);
-        const sorted = [...nums].sort((a, b) => a - b);
+        // `numericVals`: only genuinely numeric, non-blank entries. Functions
+        // where a phantom 0 would corrupt the result more than just skew a
+        // running total (PRODUCT zeroing out entirely, MEDIAN/STDEV/VAR
+        // treating a text cell as a real data point) use this instead.
+        const numericVals = pairs
+          .filter(p => p.raw !== '' && !isNaN(parseCellNumber(p.raw)))
+          .map(p => p.num);
+        let result;
         switch (fn.toUpperCase()) {
-          case 'SUM':     return sum;
+          case 'SUM':     result = nums.reduce((a, b) => a + b, 0); break;
           case 'AVG':
-          case 'AVERAGE': return nums.length ? sum / nums.length : 0;
+          case 'AVERAGE': result = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0; break;
           // reduce (not Math.min/max(...nums)) avoids RangeError: Maximum
           // call stack size exceeded when spreading very large ranges.
-          case 'MIN':     return nums.length ? nums.reduce((a, b) => Math.min(a, b)) : 0;
-          case 'MAX':     return nums.length ? nums.reduce((a, b) => Math.max(a, b)) : 0;
-          case 'COUNT':   return numericCount;
-          case 'COUNTA':  return nonEmptyCount;
-          case 'ABS':     return Math.abs(nums[0] || 0);
-          case 'ROUND':   return preciseRound(nums[0] || 0, nums[1] || 0);
-          case 'FLOOR':   return Math.floor(nums[0] || 0);
+          case 'MIN':     result = numericVals.length ? numericVals.reduce((a, b) => Math.min(a, b)) : 0; break;
+          case 'MAX':     result = numericVals.length ? numericVals.reduce((a, b) => Math.max(a, b)) : 0; break;
+          case 'COUNT':   result = numericVals.length; break;
+          case 'COUNTA':  result = pairs.filter(p => p.raw !== '').length; break;
+          case 'ABS':     result = Math.abs(nums[0] || 0); break;
+          case 'ROUND':   result = preciseRound(nums[0] || 0, nums[1] || 0); break;
+          case 'FLOOR':
+          case 'INT':     result = Math.floor(nums[0] || 0); break;
           case 'CEIL':
-          case 'CEILING': return Math.ceil(nums[0] || 0);
-          case 'TRUNC':   return preciseTrunc(nums[0] || 0, nums[1] || 0);
-          case 'INT':     return Math.floor(nums[0] || 0);
-          case 'SIGN':    return Math.sign(nums[0] || 0);
-          case 'SQRT':    return Math.sqrt(nums[0] || 0);
+          case 'CEILING': result = Math.ceil(nums[0] || 0); break;
+          case 'TRUNC':   result = preciseTrunc(nums[0] || 0, nums[1] || 0); break;
+          case 'SIGN':    result = Math.sign(nums[0] || 0); break;
+          case 'SQRT':    result = Math.sqrt(nums[0] || 0); break;
           case 'POW':
-          case 'POWER':   return Math.pow(nums[0], nums[1]);
-          case 'MOD':     return nums[0] % nums[1];
-          case 'EXP':     return Math.exp(nums[0] || 0);
-          case 'LOG':     return nums.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log(nums[0]);
-          case 'LOG10':   return Math.log10(nums[0]);
-          case 'PI':      return Math.PI;
+          case 'POWER':   result = Math.pow(nums[0] || 0, nums[1] || 0); break;
+          case 'MOD':     result = spreadsheetMod(nums[0] || 0, nums[1] || 0); break;
+          case 'EXP':     result = Math.exp(nums[0] || 0); break;
+          // pairs.length (not nums.length) decides arg count: nums silently
+          // drops invalid/non-numeric entries, which previously made
+          // LOG(8, <bad literal>) look like a 1-arg call and fall back to
+          // natural log instead of erroring.
+          case 'LOG':     result = pairs.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log(nums[0]); break;
+          case 'LOG10':   result = Math.log10(nums[0]); break;
+          case 'PI':      result = Math.PI; break;
           case 'MEDIAN': {
-            if (!sorted.length) return 0;
+            const sorted = [...numericVals].sort((a, b) => a - b);
+            if (!sorted.length) { result = 0; break; }
             const mid = Math.floor(sorted.length / 2);
-            return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            result = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            break;
           }
-          case 'PRODUCT': return nums.length ? nums.reduce((a, b) => a * b, 1) : 0;
+          case 'PRODUCT': result = numericVals.length ? numericVals.reduce((a, b) => a * b, 1) : 0; break;
           case 'STDEV':
           case 'VAR': {
-            if (nums.length < 2) return 0;
-            const mean = sum / nums.length;
-            const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1);
-            return fn.toUpperCase() === 'VAR' ? variance : Math.sqrt(variance);
+            if (numericVals.length < 2) { result = 0; break; }
+            const mean = numericVals.reduce((a, b) => a + b, 0) / numericVals.length;
+            const variance = numericVals.reduce((a, b) => a + (b - mean) ** 2, 0) / (numericVals.length - 1);
+            result = fn.toUpperCase() === 'VAR' ? variance : Math.sqrt(variance);
+            break;
           }
           default:        earlyError = '#NAME?'; return 0;
         }
+        // A function call that produces NaN/Infinity (SQRT(-4), LOG(0), a
+        // missing-arg MOD, ...) must invalidate the whole formula. Without
+        // this check the NaN/Infinity gets stringified into `expr` and, on
+        // the next pass, silently dropped as an "unparseable" argument to
+        // whatever function it's nested inside — e.g. SUM(SQRT(-4), 5) would
+        // quietly return 5 instead of erroring.
+        if (typeof result !== 'number' || !isFinite(result)) {
+          earlyError = '#ERR';
+          return 0;
+        }
+        return result;
       });
-    } while (!earlyError && expr !== prevExpr && ++passes < 10);
+    } while (!earlyError && expr !== prevExpr && ++passes < 100);
     if (earlyError) return earlyError;
 
     expr = expr.replace(/\b([A-Z]\d+)\b/gi, function(_, ref) {
@@ -172,7 +207,7 @@ function evalFormula(formula, grid, depth) {
     // `|| 0` normalizes -0 to 0 (-0 + 0 === 0): -0 is a legitimate result of
     // e.g. `=0*-1`, but is a footgun for callers comparing with strict
     // equality (Object.is(-0, 0) is false) and serves no display purpose.
-    return Number.isInteger(result) ? (result || 0) : parseFloat(result.toFixed(8));
+    return Number.isInteger(result) ? (result || 0) : (parseFloat(result.toFixed(8)) || 0);
   } catch (e) {
     return '#ERR';
   }
