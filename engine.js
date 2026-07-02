@@ -112,7 +112,7 @@ function evalFormula(formula, grid, depth) {
         if (earlyError) return 0;
         const pairs = resolveArgs(args, grid, depth);
         // `nums`: every resolved value, including the 0s that blank/text
-        // range cells contribute — matches the documented SUM/AVG convention
+        // range cells contribute — matches the documented SUM/AVERAGE convention
         // (a non-numeric cell "contributes 0" rather than being skipped).
         const nums = pairs.map(p => p.num).filter(v => typeof v === 'number' && isFinite(v));
         // `numericVals`: only genuinely numeric, non-blank entries. Functions
@@ -125,7 +125,6 @@ function evalFormula(formula, grid, depth) {
         let result;
         switch (fn.toUpperCase()) {
           case 'SUM':     result = nums.reduce((a, b) => a + b, 0); break;
-          case 'AVG':
           case 'AVERAGE': result = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0; break;
           // reduce (not Math.min/max(...nums)) avoids RangeError: Maximum
           // call stack size exceeded when spreading very large ranges.
@@ -137,7 +136,6 @@ function evalFormula(formula, grid, depth) {
           case 'ROUND':   result = preciseRound(nums[0] || 0, nums[1] || 0); break;
           case 'FLOOR':
           case 'INT':     result = Math.floor(nums[0] || 0); break;
-          case 'CEIL':
           case 'CEILING': result = Math.ceil(nums[0] || 0); break;
           case 'TRUNC':   result = preciseTrunc(nums[0] || 0, nums[1] || 0); break;
           case 'SIGN':    result = Math.sign(nums[0] || 0); break;
@@ -150,7 +148,8 @@ function evalFormula(formula, grid, depth) {
           // drops invalid/non-numeric entries, which previously made
           // LOG(8, <bad literal>) look like a 1-arg call and fall back to
           // natural log instead of erroring.
-          case 'LOG':     result = pairs.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log(nums[0]); break;
+          case 'LN':      result = Math.log(nums[0]); break;
+          case 'LOG':     result = pairs.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log10(nums[0]); break;
           case 'LOG10':   result = Math.log10(nums[0]); break;
           case 'PI':      result = Math.PI; break;
           case 'MEDIAN': {

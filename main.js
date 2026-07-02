@@ -96,7 +96,6 @@ var require_engine = __commonJS({
               case "SUM":
                 result2 = nums.reduce((a, b) => a + b, 0);
                 break;
-              case "AVG":
               case "AVERAGE":
                 result2 = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
                 break;
@@ -124,7 +123,6 @@ var require_engine = __commonJS({
               case "INT":
                 result2 = Math.floor(nums[0] || 0);
                 break;
-              case "CEIL":
               case "CEILING":
                 result2 = Math.ceil(nums[0] || 0);
                 break;
@@ -151,8 +149,11 @@ var require_engine = __commonJS({
               // drops invalid/non-numeric entries, which previously made
               // LOG(8, <bad literal>) look like a 1-arg call and fall back to
               // natural log instead of erroring.
+              case "LN":
+                result2 = Math.log(nums[0]);
+                break;
               case "LOG":
-                result2 = pairs.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log(nums[0]);
+                result2 = pairs.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log10(nums[0]);
                 break;
               case "LOG10":
                 result2 = Math.log10(nums[0]);
@@ -220,17 +221,97 @@ var require_engine = __commonJS({
 });
 
 // src/main.js
-var { Plugin, MarkdownView, Notice } = require("obsidian");
+var { Plugin, PluginSettingTab, Setting, MarkdownView, Notice } = require("obsidian");
 var { evalFormula, formatResult } = require_engine();
+var DEFAULT_SETTINGS = {
+  copyFormat: "csv",
+  // 'csv' | 'tsv'
+  copyContent: "values"
+  // 'values' | 'formulas'
+};
+var TableCalcSettingTab = class extends PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    new Setting(containerEl).setName("Copy format").setDesc("File format used by the Copy button on calc tables.").addDropdown(
+      (drop) => drop.addOption("csv", "CSV (comma-separated)").addOption("tsv", "TSV (tab-separated)").setValue(this.plugin.settings.copyFormat).onChange(async (v) => {
+        this.plugin.settings.copyFormat = v;
+        await this.plugin.saveSettings();
+      })
+    );
+    new Setting(containerEl).setName("Copy content").setDesc(
+      "Values \u2014 copies the computed result of each formula.\nFormulas \u2014 copies the raw formula text (e.g. =SUM(B1:C1)). Paste into Google Sheets or Excel to re-evaluate."
+    ).addDropdown(
+      (drop) => drop.addOption("values", "Computed values").addOption("formulas", "Formulas (for spreadsheet import)").setValue(this.plugin.settings.copyContent).onChange(async (v) => {
+        this.plugin.settings.copyContent = v;
+        await this.plugin.saveSettings();
+      })
+    );
+  }
+};
 var LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-function decorateTable(tableEl) {
+function tableToText(tableEl, settings, mode = "data") {
+  const sep = settings.copyFormat === "tsv" ? "	" : ",";
+  const useFormulas = settings.copyContent === "formulas";
+  function encode(raw) {
+    const bad = settings.copyFormat === "tsv" ? (s) => s.includes("	") || s.includes('"') || s.includes("\n") : (s) => s.includes(",") || s.includes('"') || s.includes("\n");
+    if (bad(raw)) return '"' + raw.replace(/"/g, '""') + '"';
+    return raw;
+  }
+  const rows = [];
+  Array.from(tableEl.querySelectorAll("tr")).forEach((row) => {
+    if (row.classList.contains("table-calc-col-headers")) return;
+    const isHeader = !!row.querySelector("th");
+    if (isHeader && mode === "data") return;
+    if (!isHeader && mode === "headers") return;
+    const cells = [];
+    Array.from(row.querySelectorAll("th, td")).forEach((cell, i) => {
+      if (i === 0) return;
+      const formula = cell.getAttribute("data-formula");
+      const val = useFormulas && formula ? formula : cell.textContent.trim();
+      cells.push(encode(val));
+    });
+    if (cells.length) rows.push(cells.join(sep));
+  });
+  return rows.join("\n");
+}
+function decorateTable(tableEl, settings) {
+  if (tableEl.querySelector(".table-calc-col-headers")) return;
   const allRows = Array.from(tableEl.querySelectorAll("tr"));
   const headerRows = allRows.filter((r) => r.querySelector("th"));
   const dataRows = allRows.filter((r) => r.querySelector("td"));
   if (dataRows.length === 0) return;
-  const dataCols = dataRows[0].querySelectorAll("td").length - 1;
+  const dataCols = dataRows[0].querySelectorAll("td").length;
+  function makeBtn(parentEl, mode) {
+    const btn = parentEl.createEl("button", { cls: "table-calc-csv-btn" });
+    function updateLabel() {
+      const fmt = settings.copyFormat.toUpperCase();
+      const fx = settings.copyContent === "formulas" ? " fx" : "";
+      const labels = { data: `${fmt}${fx}`, headers: `H ${fmt}${fx}`, all: `All ${fmt}${fx}` };
+      const titles = { data: "Copy data rows", headers: "Copy headers only", all: "Copy headers + data" };
+      btn.textContent = labels[mode];
+      btn.title = titles[mode] + (settings.copyContent === "formulas" ? " \u2014 formulas preserved" : "");
+    }
+    updateLabel();
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      updateLabel();
+      navigator.clipboard.writeText(tableToText(tableEl, settings, mode)).then(() => {
+        const prev = btn.textContent;
+        btn.textContent = "\u2713";
+        setTimeout(() => {
+          btn.textContent = prev;
+        }, 1500);
+      });
+    });
+  }
   const colLetterRow = createEl("tr", { cls: "table-calc-col-headers" });
-  colLetterRow.createEl("th", { cls: "table-calc-corner" });
+  const abcCorner = colLetterRow.createEl("th", { cls: "table-calc-corner" });
+  makeBtn(abcCorner, "data");
   for (let c = 0; c < dataCols; c++) {
     colLetterRow.createEl("th", { cls: "table-calc-col-label", text: LETTERS[c] || String(c + 1) });
   }
@@ -240,68 +321,180 @@ function decorateTable(tableEl) {
   } else {
     tableEl.insertBefore(colLetterRow, tableEl.firstChild);
   }
-  headerRows.forEach((row) => {
-    const firstTh = row.querySelector("th");
-    if (firstTh) {
-      firstTh.textContent = "";
-      firstTh.className = "table-calc-row-label table-calc-corner";
-    }
+  headerRows.forEach((row, i) => {
+    const corner = createEl("th", { cls: "table-calc-corner" });
+    if (i === 0) makeBtn(corner, "headers");
+    row.insertBefore(corner, row.firstChild);
   });
   dataRows.forEach((row, r) => {
-    const firstTd = row.querySelector("td");
-    if (firstTd) {
-      firstTd.textContent = r + 1;
-      firstTd.className = "table-calc-row-label";
-      firstTd.removeAttribute("data-formula");
-    }
+    row.insertBefore(createEl("td", { cls: "table-calc-row-label", text: String(r + 1) }), row.firstChild);
   });
 }
-function hasCalcMarker(tableEl) {
-  const firstTh = tableEl.querySelector("th");
-  return firstTh && firstTh.textContent.trim().toLowerCase() === "{calc}";
+var calcTableFingerprints = /* @__PURE__ */ new Map();
+function tableFingerprint(tableEl) {
+  const rows = Array.from(tableEl.querySelectorAll("tr"));
+  const contentRow = rows.find((r) => !r.classList.contains("table-calc-col-headers"));
+  if (!contentRow) return "";
+  const cells = Array.from(contentRow.querySelectorAll("th, td")).filter((c) => !c.classList.contains("table-calc-corner") && !c.classList.contains("table-calc-row-label"));
+  return cells.map((c) => c.textContent.trim()).filter(Boolean).join("\0");
 }
-function processTable(tableEl) {
-  if (tableEl.dataset.tableCalc === "done") return;
-  if (!hasCalcMarker(tableEl)) {
+function findPrecedingCalcMarker(tableEl) {
+  const hasCalcText = (el) => el && el.textContent && el.textContent.trim() === "{{calc}}";
+  function skippable(el) {
+    const text = el.textContent.trim();
+    return text === "" || text.startsWith("|");
+  }
+  let node = tableEl;
+  for (let depth = 0; depth < 5; depth++) {
+    let prev = node.previousElementSibling;
+    while (prev && skippable(prev)) prev = prev.previousElementSibling;
+    if (prev) {
+      if (hasCalcText(prev)) return prev;
+      const innerP = prev.querySelector && prev.querySelector("p");
+      if (innerP && hasCalcText(innerP)) return innerP;
+      break;
+    }
+    node = node.parentElement;
+    if (!node) break;
+  }
+  return null;
+}
+function hasCalcMarker(tableEl, filePath) {
+  if (tableEl.dataset.tableCalcMarked === "true") return true;
+  const marker = findPrecedingCalcMarker(tableEl);
+  if (marker) {
+    tableEl.dataset.tableCalcMarked = "true";
+    if (marker.tagName === "P") marker.style.display = "none";
+    return true;
+  }
+  if (filePath) {
+    const fps = calcTableFingerprints.get(filePath);
+    if (fps && fps.size > 0) {
+      const fp = tableFingerprint(tableEl);
+      if (fp && fps.has(fp)) {
+        tableEl.dataset.tableCalcMarked = "true";
+        return true;
+      }
+    }
+  }
+  return false;
+}
+function processTable(tableEl, settings, filePath) {
+  const isReadingView = !tableEl.closest(".cm-editor");
+  if (tableEl.dataset.tableCalc === "done") {
+    if (isReadingView) {
+      const hasRawFormulas = Array.from(tableEl.querySelectorAll("td")).some(
+        (td) => !td.classList.contains("table-calc-row-label") && td.textContent.trim().startsWith("=")
+      );
+      if (hasRawFormulas) {
+        tableEl.querySelector(".table-calc-col-headers")?.remove();
+        tableEl.querySelectorAll(".table-calc-corner").forEach((el) => el.remove());
+        tableEl.querySelectorAll(".table-calc-row-label").forEach((el) => el.remove());
+        delete tableEl.dataset.tableCalc;
+      } else if (!tableEl.querySelector(".table-calc-col-headers")) {
+        decorateTable(tableEl, settings);
+        return;
+      } else {
+        return;
+      }
+    }
+  }
+  if (!hasCalcMarker(tableEl, filePath)) {
     tableEl.dataset.tableCalc = "skip";
     return;
   }
   const allRows = Array.from(tableEl.querySelectorAll("tr"));
   const dataRows = allRows.filter((r) => r.querySelector("td"));
   if (dataRows.length === 0) return;
-  const grid = dataRows.map(
-    (row) => Array.from(row.querySelectorAll("td")).slice(1).map((td) => td.textContent.trim())
-  );
-  dataRows.forEach((row, r) => {
-    Array.from(row.querySelectorAll("td")).slice(1).forEach((td, c) => {
+  const dataCells = (row) => Array.from(row.querySelectorAll("td")).filter((td) => !td.classList.contains("table-calc-row-label"));
+  const grid = dataRows.map((row) => dataCells(row).map((td) => td.textContent.trim()));
+  dataRows.forEach((row) => {
+    dataCells(row).forEach((td) => {
       const text = td.textContent.trim();
       if (!text.startsWith("=")) return;
       const result = evalFormula(text, grid);
       const isErr = typeof result === "string" && result.startsWith("#");
+      const display = formatResult(result);
       td.setAttribute("data-formula", text);
-      td.textContent = formatResult(result);
-      td.classList.add(isErr ? "table-calc-error-cell" : "table-calc-cell");
-      td.title = text;
+      if (isReadingView) {
+        td.textContent = display;
+        td.title = text;
+        td.classList.add(isErr ? "table-calc-error-cell" : "table-calc-cell");
+      } else {
+        td.title = isErr ? `${text} \u2192 ${display}` : `${text} = ${display}`;
+        td.classList.add(isErr ? "table-calc-lp-error" : "table-calc-lp-formula");
+      }
     });
   });
-  decorateTable(tableEl);
+  decorateTable(tableEl, settings);
   tableEl.dataset.tableCalc = "done";
-}
-function processEl(el) {
-  el.querySelectorAll("table").forEach(processTable);
 }
 var TableCalcPlugin = class extends Plugin {
   constructor(...args) {
     super(...args);
     this.observers = [];
+    this.settings = Object.assign({}, DEFAULT_SETTINGS);
   }
   async onload() {
-    this.registerMarkdownPostProcessor((el) => {
-      processEl(el);
+    await this.loadSettings();
+    this.addSettingTab(new TableCalcSettingTab(this.app, this));
+    this.registerMarkdownPostProcessor((el, ctx) => {
+      el.querySelectorAll("p").forEach((p) => {
+        if (p.textContent.trim() === "{{calc}}") p.style.display = "none";
+      });
+      const tables = Array.from(el.querySelectorAll("table"));
+      if (tables.length === 0) return;
+      const markerInEl = Array.from(el.querySelectorAll("p")).some((p) => p.textContent.trim() === "{{calc}}");
+      if (markerInEl) {
+        tables.forEach((t) => {
+          t.dataset.tableCalcMarked = "true";
+        });
+      } else {
+        const info = ctx.getSectionInfo(el);
+        if (info && info.lineStart > 0) {
+          const lines = info.text.split("\n");
+          for (let i = info.lineStart - 1; i >= Math.max(0, info.lineStart - 4); i--) {
+            const line = lines[i].trim();
+            if (line === "{{calc}}") {
+              tables.forEach((t) => {
+                t.dataset.tableCalcMarked = "true";
+              });
+              break;
+            }
+            if (line !== "") break;
+          }
+        }
+      }
+      tables.forEach((t) => processTable(t, this.settings, ctx.sourcePath));
     });
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         this.attachObserver(leaf);
+        const view = leaf?.view;
+        if (view instanceof MarkdownView && view.file) {
+          this.buildFingerprints(view.file);
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        if (file) this.buildFingerprints(file);
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (editor, info) => {
+        const file = info?.file;
+        if (!file) return;
+        clearTimeout(this._fingerprintTimer);
+        this._fingerprintTimer = setTimeout(() => {
+          this.buildFingerprints(file, editor.getValue());
+        }, 200);
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view && view.file) this.buildFingerprints(view.file);
       })
     );
     this.app.workspace.iterateAllLeaves((leaf) => this.attachObserver(leaf));
@@ -314,13 +507,33 @@ var TableCalcPlugin = class extends Plugin {
         if (!checking) {
           view.contentEl.querySelectorAll("table[data-table-calc]").forEach((t) => {
             delete t.dataset.tableCalc;
+            delete t.dataset.tableCalcMarked;
           });
-          processEl(view.contentEl);
+          this.reprocess(view.contentEl, view.file?.path);
           new Notice("Table Calc: formulas evaluated");
         }
         return true;
       }
     });
+  }
+  reprocess(contentEl, filePath) {
+    contentEl.querySelectorAll("p").forEach((p) => {
+      if (p.textContent.trim() !== "{{calc}}") return;
+      p.style.display = "none";
+      let table = null;
+      const next = p.nextElementSibling;
+      if (next) {
+        table = next.tagName === "TABLE" ? next : next.querySelector && next.querySelector("table");
+      }
+      if (!table && p.parentElement) {
+        const parentNext = p.parentElement.nextElementSibling;
+        if (parentNext) {
+          table = parentNext.tagName === "TABLE" ? parentNext : parentNext.querySelector && parentNext.querySelector("table");
+        }
+      }
+      if (table) table.dataset.tableCalcMarked = "true";
+    });
+    contentEl.querySelectorAll("table").forEach((t) => processTable(t, this.settings, filePath));
   }
   attachObserver(leaf) {
     if (!leaf || !leaf.view || !leaf.view.contentEl) return;
@@ -331,23 +544,68 @@ var TableCalcPlugin = class extends Plugin {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType !== 1) continue;
-          if (node.matches && node.matches("table")) {
-            tables.add(node);
-          } else if (node.querySelectorAll) {
-            node.querySelectorAll("table").forEach((t) => tables.add(t));
-          }
+          if (node.matches && node.matches("table")) tables.add(node);
+          else if (node.querySelectorAll) node.querySelectorAll("table").forEach((t) => tables.add(t));
+        }
+        const targetEl = mutation.target && mutation.target.nodeType === 3 ? mutation.target.parentElement : mutation.target && mutation.target.nodeType === 1 ? mutation.target : null;
+        if (targetEl) {
+          const tbl = targetEl.closest ? targetEl.closest("table") : null;
+          if (tbl) tables.add(tbl);
         }
       }
       if (tables.size === 0) return;
+      const filePath = this.app.workspace.getActiveFile()?.path;
       setTimeout(() => tables.forEach((t) => {
-        delete t.dataset.tableCalc;
-        processTable(t);
-      }), 100);
+        if (t.dataset.tableCalc !== "done") delete t.dataset.tableCalc;
+        processTable(t, this.settings, filePath);
+      }), 150);
     });
-    observer.observe(el, { childList: true, subtree: true });
+    observer.observe(el, { childList: true, subtree: true, characterData: true });
     el._tableCalcObserver = observer;
     this.observers.push(observer);
-    processEl(el);
+    const initPath = this.app.workspace.getActiveFile()?.path;
+    this.reprocess(el, initPath);
+  }
+  // Scan the file source to build a fingerprint set for tables preceded by
+  // {{calc}}. Stored in calcTableFingerprints so hasCalcMarker can identify
+  // calc tables in Live Preview even when DOM traversal fails.
+  // sourceOverride lets callers pass the live editor buffer (editor-change)
+  // instead of the vault cache, which can lag behind unsaved keystrokes.
+  async buildFingerprints(file, sourceOverride) {
+    try {
+      const source = sourceOverride ?? await this.app.vault.cachedRead(file);
+      const lines = source.split("\n");
+      const fps = /* @__PURE__ */ new Set();
+      let seenCalc = false;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed === "{{calc}}") {
+          seenCalc = true;
+        } else if (seenCalc && trimmed.startsWith("|")) {
+          const cells = trimmed.split("|").map((c) => c.trim()).filter(Boolean);
+          if (cells.every((c) => /^[-:]+$/.test(c))) continue;
+          fps.add(cells.join("\0"));
+          seenCalc = false;
+        } else if (trimmed !== "") {
+          seenCalc = false;
+        }
+      }
+      calcTableFingerprints.set(file.path, fps);
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (view && view.file?.path === file.path) {
+        view.contentEl.querySelectorAll('table[data-table-calc="skip"]').forEach((t) => {
+          delete t.dataset.tableCalc;
+          processTable(t, this.settings, file.path);
+        });
+      }
+    } catch (_) {
+    }
+  }
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+  async saveSettings() {
+    await this.saveData(this.settings);
   }
   onunload() {
     this.observers.forEach((o) => o.disconnect());
@@ -358,3 +616,6 @@ var TableCalcPlugin = class extends Plugin {
   }
 };
 module.exports = TableCalcPlugin;
+module.exports.processTable = processTable;
+module.exports.decorateTable = decorateTable;
+module.exports.hasCalcMarker = hasCalcMarker;

@@ -103,17 +103,16 @@ test('SUM: individual cell args', () => {
   assert.equal(evalFormula('=SUM(A1,B1,C1)', grid), 30);
 });
 
-// ─── evalFormula — AVG / AVERAGE ─────────────────────────────────────────────
+// ─── evalFormula — AVERAGE ────────────────────────────────────────────────────
 
-test('AVG: basic average', () => {
+test('AVERAGE: basic average', () => {
   const grid = [['10'], ['20'], ['30']];
-  assert.equal(evalFormula('=AVG(A1:A3)', grid), 20);
   assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), 20);
 });
 
-test('AVG: empty range returns 0', () => {
+test('AVERAGE: empty range returns 0', () => {
   const grid = [[''], [''], ['']]
-  assert.equal(evalFormula('=AVG(A1:A3)', grid), 0);
+  assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), 0);
 });
 
 // ─── evalFormula — MIN / MAX ──────────────────────────────────────────────────
@@ -175,9 +174,9 @@ test('mixed: cell ref added to function result', () => {
   assert.equal(evalFormula('=A1+SUM(B1:C1)', grid), 35); // 5+(10+20)
 });
 
-test('mixed: nested functions — ROUND wrapping AVG', () => {
+test('mixed: nested functions — ROUND wrapping AVERAGE', () => {
   const grid = [['10'], ['20'], ['17']];
-  assert.equal(evalFormula('=ROUND(AVG(A1:A3), 0)', grid), 16); // avg=15.666… → 16
+  assert.equal(evalFormula('=ROUND(AVERAGE(A1:A3), 0)', grid), 16); // avg=15.666… → 16
 });
 
 test('ABS: works with literal negative and cell ref', () => {
@@ -263,10 +262,9 @@ test('PRODUCT: multiplies range', () => {
   assert.equal(evalFormula('=PRODUCT(A1:A3)', grid), 24);
 });
 
-test('FLOOR/CEIL/CEILING/TRUNC/INT/SIGN', () => {
+test('FLOOR/CEILING/TRUNC/INT/SIGN', () => {
   const grid = [['3.7']];
   assert.equal(evalFormula('=FLOOR(A1)', grid), 3);
-  assert.equal(evalFormula('=CEIL(A1)', grid), 4);
   assert.equal(evalFormula('=CEILING(A1)', grid), 4);
   assert.equal(evalFormula('=INT(A1)', grid), 3);
   assert.equal(evalFormula('=TRUNC(3.14159,2)', []), 3.14);
@@ -275,9 +273,12 @@ test('FLOOR/CEIL/CEILING/TRUNC/INT/SIGN', () => {
   assert.equal(evalFormula('=SIGN(0)', []), 0);
 });
 
-test('EXP/LOG/LOG10/PI', () => {
+test('EXP/LN/LOG/LOG10/PI', () => {
   assert.equal(evalFormula('=LOG10(100)', []), 2);
-  assert.equal(evalFormula('=LOG(8,2)', []), 3);
+  assert.equal(evalFormula('=LOG(100)', []), 2);           // single-arg LOG is base-10
+  assert.equal(evalFormula('=LOG(8,2)', []), 3);           // two-arg LOG uses given base
+  assert.equal(evalFormula('=LN(1)', []), 0);              // LN is natural log
+  assert.equal(evalFormula('=ROUND(LN(8),4)', []), 2.0794);
   assert.equal(evalFormula('=ROUND(PI(),2)', []), 3.14);
   assert.equal(evalFormula('=ROUND(EXP(1),2)', []), 2.72);
 });
@@ -415,7 +416,7 @@ test('nested errors: a NaN/Infinity-producing inner call invalidates the whole f
   assert.equal(evalFormula('=SQRT(-4)', []), '#ERR');
   assert.equal(evalFormula('=ROUND(SQRT(-4),2)', []), '#ERR');
   assert.equal(evalFormula('=SUM(SQRT(-4),5)', []), '#ERR');
-  assert.equal(evalFormula('=AVG(LOG(0),5)', []), '#ERR');
+  assert.equal(evalFormula('=AVERAGE(LOG(0),5)', []), '#ERR');
   assert.equal(evalFormula('=MAX(LOG(-1),5)', []), '#ERR');
 });
 
@@ -443,10 +444,11 @@ test('non-numeric cells: MIN/MAX skip text cells instead of treating them as 0',
 
 // ─── evalFormula — LOG argument validation ────────────────────────────────────
 
-test('LOG: an invalid literal base errors instead of silently falling back to natural log', () => {
-  assert.equal(evalFormula('=LOG(8,abc)', []), '#ERR');
-  assert.equal(evalFormula('=LOG(8,2)', []), 3);
-  assert.equal(evalFormula('=LOG(8)', []), parseFloat(Math.log(8).toFixed(8)));
+test('LOG: single-arg is base-10; two-arg uses given base; invalid base errors', () => {
+  assert.equal(evalFormula('=LOG(100)', []), 2);           // single-arg = base-10
+  assert.equal(evalFormula('=LOG(8,2)', []), 3);           // two-arg custom base
+  assert.equal(evalFormula('=LOG(8,abc)', []), '#ERR');    // invalid base still errors
+  assert.equal(evalFormula('=LN(8)', []), parseFloat(Math.log(8).toFixed(8))); // LN = natural log
 });
 
 // ─── evalFormula — MOD spreadsheet sign semantics ─────────────────────────────
