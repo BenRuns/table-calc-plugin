@@ -23,12 +23,15 @@ var require_engine = __commonJS({
       if (!row || c < 0 || c >= row.length) return "";
       return row[c].trim();
     }
+    function parseCellNumber(str) {
+      return /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i.test(str) ? parseFloat(str) : NaN;
+    }
     function getGridValue(grid, r, c, depth) {
       if (depth <= 0 || r < 0 || r >= grid.length) return 0;
       const raw = getRawCell(grid, r, c);
       if (!raw) return 0;
       if (raw.startsWith("=")) return +evalFormula2(raw, grid, depth - 1) || 0;
-      const n = parseFloat(raw);
+      const n = parseCellNumber(raw);
       return isNaN(n) ? 0 : n;
     }
     function resolveArgs(argsStr, grid, depth) {
@@ -53,58 +56,155 @@ var require_engine = __commonJS({
           vals.push({ num: getGridValue(grid, ref.r, ref.c, depth), raw });
           continue;
         }
-        const n = parseFloat(t);
-        if (!isNaN(n)) vals.push({ num: n, raw: t });
+        vals.push({ num: parseCellNumber(t), raw: t });
       }
       return vals;
+    }
+    function shiftDecimal(num, exp) {
+      const [mantissa, exponent] = String(num).split("e");
+      return Number(mantissa + "e" + (Number(exponent || 0) + exp));
+    }
+    function preciseRound(num, decimals) {
+      const shifted = shiftDecimal(num, decimals);
+      const rounded = Math.sign(shifted) * Math.round(Math.abs(shifted));
+      return shiftDecimal(rounded, -decimals);
+    }
+    function preciseTrunc(num, decimals) {
+      return shiftDecimal(Math.trunc(shiftDecimal(num, decimals)), -decimals);
+    }
+    function spreadsheetMod(a, b) {
+      const r = a % b;
+      return r !== 0 && r < 0 !== b < 0 ? r + b : r;
     }
     function evalFormula2(formula, grid, depth) {
       if (depth === void 0) depth = 20;
       if (!formula || !formula.startsWith("=")) return formula;
       let expr = formula.slice(1).trim();
-      let earlyError = null;
-      let prevExpr;
-      let passes = 0;
-      do {
-        prevExpr = expr;
-        expr = expr.replace(/([A-Z]+)\(([^()]*)\)/gi, function(_, fn, args) {
-          if (earlyError) return 0;
-          const pairs = resolveArgs(args, grid, depth);
-          const nums = pairs.map((p) => p.num).filter((v) => typeof v === "number" && isFinite(v));
-          const numericCount = pairs.filter((p) => p.raw !== "" && !isNaN(parseFloat(p.raw))).length;
-          const sum = nums.reduce((a, b) => a + b, 0);
-          switch (fn.toUpperCase()) {
-            case "SUM":
-              return sum;
-            case "AVG":
-            case "AVERAGE":
-              return nums.length ? sum / nums.length : 0;
-            case "MIN":
-              return nums.length ? Math.min(...nums) : 0;
-            case "MAX":
-              return nums.length ? Math.max(...nums) : 0;
-            case "COUNT":
-              return numericCount;
-            case "ABS":
-              return Math.abs(nums[0] || 0);
-            case "ROUND":
-              return Math.round((nums[0] || 0) * Math.pow(10, nums[1] || 0)) / Math.pow(10, nums[1] || 0);
-            default:
-              earlyError = "#NAME?";
-              return 0;
-          }
-        });
-      } while (!earlyError && expr !== prevExpr && ++passes < 10);
-      if (earlyError) return earlyError;
-      expr = expr.replace(/\b([A-Z]\d+)\b/gi, function(_, ref) {
-        const pos = parseRef(ref);
-        return pos ? getGridValue(grid, pos.r, pos.c, depth) : 0;
-      });
-      if (!/^[\d\s+\-*\/().%]+$/.test(expr)) return "#ERR";
       try {
+        let earlyError = null;
+        let prevExpr;
+        let passes = 0;
+        do {
+          prevExpr = expr;
+          expr = expr.replace(/([A-Z][A-Z0-9]*)\(([^()]*)\)/gi, function(_, fn, args) {
+            if (earlyError) return 0;
+            const pairs = resolveArgs(args, grid, depth);
+            const nums = pairs.map((p) => p.num).filter((v) => typeof v === "number" && isFinite(v));
+            const numericVals = pairs.filter((p) => p.raw !== "" && !isNaN(parseCellNumber(p.raw))).map((p) => p.num);
+            let result2;
+            switch (fn.toUpperCase()) {
+              case "SUM":
+                result2 = nums.reduce((a, b) => a + b, 0);
+                break;
+              case "AVG":
+              case "AVERAGE":
+                result2 = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+                break;
+              // reduce (not Math.min/max(...nums)) avoids RangeError: Maximum
+              // call stack size exceeded when spreading very large ranges.
+              case "MIN":
+                result2 = numericVals.length ? numericVals.reduce((a, b) => Math.min(a, b)) : 0;
+                break;
+              case "MAX":
+                result2 = numericVals.length ? numericVals.reduce((a, b) => Math.max(a, b)) : 0;
+                break;
+              case "COUNT":
+                result2 = numericVals.length;
+                break;
+              case "COUNTA":
+                result2 = pairs.filter((p) => p.raw !== "").length;
+                break;
+              case "ABS":
+                result2 = Math.abs(nums[0] || 0);
+                break;
+              case "ROUND":
+                result2 = preciseRound(nums[0] || 0, nums[1] || 0);
+                break;
+              case "FLOOR":
+              case "INT":
+                result2 = Math.floor(nums[0] || 0);
+                break;
+              case "CEIL":
+              case "CEILING":
+                result2 = Math.ceil(nums[0] || 0);
+                break;
+              case "TRUNC":
+                result2 = preciseTrunc(nums[0] || 0, nums[1] || 0);
+                break;
+              case "SIGN":
+                result2 = Math.sign(nums[0] || 0);
+                break;
+              case "SQRT":
+                result2 = Math.sqrt(nums[0] || 0);
+                break;
+              case "POW":
+              case "POWER":
+                result2 = Math.pow(nums[0] || 0, nums[1] || 0);
+                break;
+              case "MOD":
+                result2 = spreadsheetMod(nums[0] || 0, nums[1] || 0);
+                break;
+              case "EXP":
+                result2 = Math.exp(nums[0] || 0);
+                break;
+              // pairs.length (not nums.length) decides arg count: nums silently
+              // drops invalid/non-numeric entries, which previously made
+              // LOG(8, <bad literal>) look like a 1-arg call and fall back to
+              // natural log instead of erroring.
+              case "LOG":
+                result2 = pairs.length > 1 ? Math.log(nums[0]) / Math.log(nums[1]) : Math.log(nums[0]);
+                break;
+              case "LOG10":
+                result2 = Math.log10(nums[0]);
+                break;
+              case "PI":
+                result2 = Math.PI;
+                break;
+              case "MEDIAN": {
+                const sorted = [...numericVals].sort((a, b) => a - b);
+                if (!sorted.length) {
+                  result2 = 0;
+                  break;
+                }
+                const mid = Math.floor(sorted.length / 2);
+                result2 = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+                break;
+              }
+              case "PRODUCT":
+                result2 = numericVals.length ? numericVals.reduce((a, b) => a * b, 1) : 0;
+                break;
+              case "STDEV":
+              case "VAR": {
+                if (numericVals.length < 2) {
+                  result2 = 0;
+                  break;
+                }
+                const mean = numericVals.reduce((a, b) => a + b, 0) / numericVals.length;
+                const variance = numericVals.reduce((a, b) => a + (b - mean) ** 2, 0) / (numericVals.length - 1);
+                result2 = fn.toUpperCase() === "VAR" ? variance : Math.sqrt(variance);
+                break;
+              }
+              default:
+                earlyError = "#NAME?";
+                return 0;
+            }
+            if (typeof result2 !== "number" || !isFinite(result2)) {
+              earlyError = "#ERR";
+              return 0;
+            }
+            return result2;
+          });
+        } while (!earlyError && expr !== prevExpr && ++passes < 100);
+        if (earlyError) return earlyError;
+        expr = expr.replace(/\b([A-Z]\d+)\b/gi, function(_, ref) {
+          const pos = parseRef(ref);
+          return pos ? getGridValue(grid, pos.r, pos.c, depth) : 0;
+        });
+        expr = expr.replace(/\^/g, "**");
+        if (!/^[\d\s+\-*\/().%eE]+$/.test(expr)) return "#ERR";
         const result = Function('"use strict"; return (' + expr + ")")();
         if (typeof result !== "number" || !isFinite(result)) return "#ERR";
-        return Number.isInteger(result) ? result : parseFloat(result.toFixed(8));
+        return Number.isInteger(result) ? result || 0 : parseFloat(result.toFixed(8)) || 0;
       } catch (e) {
         return "#ERR";
       }
