@@ -1,0 +1,130 @@
+Data A,Data B,Plugin formula,Sheets formula,Plugin result,Notes
+,,── ARITHMETIC (no data needed) ──,,,
+,,=1+2,=1+2,3,
+,,=10-3,=10-3,7,
+,,=3*4,=3*4,12,
+,,=10/4,=10/4,2.5,
+,,=2^10,=2^10,1024,
+,,=(2+3)*4,=(2+3)*4,20,
+,,=1e3+1,=1e3+1,1001,
+,,=-5+3,=-5+3,-2,
+,,=10/0,"=IFERROR(10/0,""#DIV/0!"")",#ERR,Sheets shows #DIV/0! not #ERR
+,,── CELL REFERENCES ──,,,
+3,4,,,,
+10,5,,,,
+,,=A1,=A13,3,
+,,=B1,=B13,4,
+,,=A1+B1,=A13+B13,7,
+,,=A1*B1,=A13*B13,12,
+,,=A2/B2,=A14/B14,2,
+,,=A1+A2,=A13+A14,13,
+,,=B1-B2,=B13-B14,-1,
+,,── SUM ──,,,
+1,,,,,
+2,,,,,
+3,,,,,
+,,,,,
+text,,,,,
+,,=SUM(A1:A5),=SUM(A23:A27),6,Plugin: blank+text → 0; Sheets: SKIPS non-numeric → result also 6 here
+,,=SUM(A1:A3),=SUM(A23:A25),6,
+,,── AVG / AVERAGE ──,,,
+10,,,,,
+20,,,,,
+30,,,,,
+,,,,,
+text,,,,,
+,,=AVG(A1:A3),=AVERAGE(A31:A33),20,
+,,=AVERAGE(A1:A3),=AVERAGE(A31:A33),20,
+,,=AVG(A1:A5),=AVERAGE(A31:A35),12,DIFFERENCE: plugin treats blank+text as 0 → avg over 5; Sheets skips them → avg over 3 = 20
+,,── MEDIAN ──,,,
+1,,,,,
+3,,,,,
+2,,,,,
+text,,,,,
+5,,,,,
+,,=MEDIAN(A1:A3),=MEDIAN(A40:A42),2,
+,,=MEDIAN(A1:A5),=MEDIAN(A40:A44),2.5,"Both skip text; sorted numeric = [1,2,3,5]; median = 2.5"
+,,── MIN / MAX ──,,,
+5,,,,,
+text,,,,,
+-3,,,,,
+,,,,,
+10,,,,,
+,,=MIN(A1:A5),=MIN(A48:A52),-3,Both skip text/blank
+,,=MAX(A1:A5),=MAX(A48:A52),10,Both skip text/blank
+,,── COUNT / COUNTA ──,,,
+5,,,,,
+text,,,,,
+,,,,,
+3.14,,,,,
+0,,,,,
+,,=COUNT(A1:A5),=COUNT(A56:A60),3,"Counts numeric only: 5, 3.14, 0 = 3"
+,,=COUNTA(A1:A5),=COUNTA(A56:A60),4,"Counts non-empty: 5, text, 3.14, 0 = 4"
+,,── PRODUCT ──,,,
+2,,,,,
+3,,,,,
+text,,,,,
+4,,,,,
+,,=PRODUCT(A1:A4),=PRODUCT(A64:A67),24,Both skip text; 2×3×4 = 24
+,,=PRODUCT(A1:A2),=PRODUCT(A64:A65),6,
+,,"── STDEV / VAR (sample, divides by n-1 — matches Sheets STDEV/VAR) ──",,,
+2,,,,,
+4,,,,,
+4,,,,,
+4,,,,,
+5,,,,,
+5,,,,,
+7,,,,,
+9,,,,,
+,,=STDEV(A1:A8),=STDEV(A71:A78),2.13808994,
+,,=VAR(A1:A8),=VAR(A71:A78),4.57142857,
+,,── ROUNDING (no data needed) ──,,,
+,,"=ROUND(2.567,2)","=ROUND(2.567,2)",2.57,
+,,"=ROUND(2.5,0)","=ROUND(2.5,0)",3,Half away from zero → 3; Sheets does the same
+,,"=ROUND(-2.5,0)","=ROUND(-2.5,0)",-3,Half away from zero → -3; Sheets does the same
+,,=FLOOR(2.9),=FLOOR(2.9),2,
+,,=FLOOR(-2.1),=FLOOR(-2.1),-3,
+,,=CEIL(2.1),=CEILING(2.1),3,Plugin: CEIL; Sheets: CEILING (auto-translated in col D)
+,,=CEIL(-2.9),=CEILING(-2.9),-2,
+,,=CEILING(2.1),=CEILING(2.1),3,
+,,=INT(2.9),=INT(2.9),2,
+,,=INT(-2.1),=INT(-2.1),-3,
+,,"=TRUNC(2.9,0)","=TRUNC(2.9,0)",2,
+,,"=TRUNC(-2.9,0)","=TRUNC(-2.9,0)",-2,Truncates toward zero (not floor)
+,,"=TRUNC(3.14159,3)","=TRUNC(3.14159,3)",3.141,
+,,── MATH (no data needed) ──,,,
+,,=ABS(-7),=ABS(-7),7,
+,,=SIGN(-5),=SIGN(-5),-1,
+,,=SIGN(0),=SIGN(0),0,
+,,=SIGN(5),=SIGN(5),1,
+,,=SQRT(9),=SQRT(9),3,
+,,=SQRT(2),=SQRT(2),1.41421356,
+,,=SQRT(-1),"=IFERROR(SQRT(-1),""#NUM!"")",#ERR,Sheets: #NUM!; plugin: #ERR
+,,"=POW(2,10)","=POWER(2,10)",1024,Plugin: POW; Sheets: POWER (auto-translated)
+,,"=POWER(3,3)","=POWER(3,3)",27,
+,,"=MOD(10,3)","=MOD(10,3)",1,
+,,"=MOD(-7,3)","=MOD(-7,3)",2,Sign of divisor → 2; matches Sheets
+,,"=MOD(7,-3)","=MOD(7,-3)",-2,Sign of divisor → -2; matches Sheets
+,,=EXP(1),=EXP(1),2.71828183,
+,,"=LOG(8,2)","=LOG(8,2)",3,
+,,"=LOG(100,10)","=LOG(100,10)",2,
+,,=LOG(8),=LN(8),2.07944154,DIFFERENCE: plugin LOG(x) = natural log; Sheets LOG(x) = log base 10. Use LN(8) in Sheets.
+,,=LOG10(1000),=LOG10(1000),3,
+,,=PI(),=PI(),3.14159265,
+,,"=ROUND(PI(),5)","=ROUND(PI(),5)",3.14159,
+,,── NESTED FORMULAS ──,,,
+3,,,,,
+4,,,,,
+5,,,,,
+,,"=ROUND(AVG(A1:A3),2)","=ROUND(AVERAGE(A116:A118),2)",4,
+,,=SUM(A1:A3)*1.1,=SUM(A116:A118)*1.1,13.2,
+,,"=SQRT(POW(A1,2))","=SQRT(POWER(A116,2))",3,
+,,── ERROR PROPAGATION ──,,,
+,,=SQRT(-4),"=IFERROR(SQRT(-4),""#NUM!"")",#ERR,Sheets: #NUM!; plugin: #ERR
+,,"=SUM(SQRT(-4),5)","=IFERROR(SUM(SQRT(-4),5),""#NUM!"")",#ERR,Plugin: error propagates → #ERR; Sheets: #NUM! propagates too
+,,=LOG(0),"=IFERROR(LOG(0),""error"")",#ERR,Sheets: #NUM!; plugin: #ERR
+,,"=BADNAME(1,2)","=BADNAME(1,2)",#NAME?,Both return #NAME?
+,,── FLOATING POINT ──,,,
+,,=0.1+0.2,=0.1+0.2,0.3,Plugin snaps to 8 decimal places; Sheets may show more digits but stores same IEEE 754 value
+,,=1/3,=1/3,0.33333333,Plugin snaps to 8 decimal places; Sheets may show more digits but stores same IEEE 754 value
+,,=2/3,=2/3,0.66666667,Plugin snaps to 8 decimal places; Sheets may show more digits but stores same IEEE 754 value
