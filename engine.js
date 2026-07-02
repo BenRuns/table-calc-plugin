@@ -102,7 +102,7 @@ function evalFormula(formula, grid, depth) {
   try {
     // Evaluate functions innermost-first using multiple passes.
     // [^()]* ensures we only match calls with no nested parens in their args,
-    // so nested calls like ROUND(AVG(A1:A3), 2) resolve AVG first, then ROUND.
+    // so nested calls like ROUND(AVERAGE(A1:A3), 2) resolve AVERAGE first, then ROUND.
     let earlyError = null;
     let prevExpr;
     let passes = 0;

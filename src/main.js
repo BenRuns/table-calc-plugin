@@ -152,6 +152,20 @@ function decorateTable(tableEl, settings) {
 }
 
 // ── Calc-table fingerprint cache ─────────────────────────────────────────────
+// Strip common Markdown inline markers so source-side fingerprints match
+// the DOM textContent that tableFingerprint() reads from rendered cells.
+// e.g. "**Name**" in source → "Name" in DOM.
+function stripInlineMd(s) {
+  return s
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g,     '$1')
+    .replace(/__([^_]+)__/g,     '$1')
+    .replace(/_([^_]+)_/g,       '$1')
+    .replace(/`([^`]+)`/g,       '$1')
+    .replace(/~~([^~]+)~~/g,     '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+}
+
 // Maps file path → Set of first-row fingerprints for tables preceded by
 // {{calc}} in that file's source. Used as a fallback in Live Preview mode
 // when DOM traversal cannot find the {{calc}} marker (e.g. CM6 keeps
@@ -482,6 +496,7 @@ class TableCalcPlugin extends Plugin {
     const el = leaf.view.contentEl;
     if (el._tableCalcObserver) return;
 
+    let debounceTimer = null;
     const observer = new MutationObserver((mutations) => {
       const tables = new Set();
       for (const mutation of mutations) {
@@ -504,10 +519,16 @@ class TableCalcPlugin extends Plugin {
         }
       }
       if (tables.size === 0) return;
-      const filePath = this.app.workspace.getActiveFile()?.path;
-      setTimeout(() => tables.forEach(t => {
-        // processTable handles both new tables and re-decoration of existing ones.
-        if (t.dataset.tableCalc !== 'done') delete t.dataset.tableCalc;
+      // Use leaf.view.file so background-pane mutations resolve the correct
+      // file rather than whatever pane happens to be focused at fire time.
+      const filePath = leaf.view.file?.path;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => tables.forEach(t => {
+        // In Live Preview, keep 'done' so processTable's LP branch falls
+        // through cheaply. In Reading View, clear it so a characterData
+        // mutation on a data cell triggers full formula re-evaluation.
+        const isLP = !!t.closest('.cm-editor');
+        if (!isLP || t.dataset.tableCalc !== 'done') delete t.dataset.tableCalc;
         processTable(t, this.settings, filePath);
       }), 150);
     });
@@ -516,7 +537,7 @@ class TableCalcPlugin extends Plugin {
     el._tableCalcObserver = observer;
     this.observers.push(observer);
 
-    const initPath = this.app.workspace.getActiveFile()?.path;
+    const initPath = leaf.view.file?.path;
     this.reprocess(el, initPath);
   }
 
@@ -540,8 +561,9 @@ class TableCalcPlugin extends Plugin {
           // Skip separator-only rows (| --- | :---: | etc.)
           const cells = trimmed.split('|').map(c => c.trim()).filter(Boolean);
           if (cells.every(c => /^[-:]+$/.test(c))) continue;
-          // First data/header row — build its fingerprint
-          fps.add(cells.join('\x00'));
+          // First data/header row — build its fingerprint.
+          // Strip inline Markdown so source "**Name**" matches DOM "Name".
+          fps.add(cells.map(stripInlineMd).join('\x00'));
           seenCalc = false;
         } else if (trimmed !== '') {
           seenCalc = false;

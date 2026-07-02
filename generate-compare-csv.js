@@ -112,14 +112,13 @@ formulaRows(sumStart, [
   ['=SUM(A1:A3)', sumGrid],
 ]);
 
-// ── AVG / AVERAGE ─────────────────────────────────────────────────────────────
-section('AVG / AVERAGE');
+// ── AVERAGE ───────────────────────────────────────────────────────────────────
+section('AVERAGE');
 const avgGrid = [['10'], ['20'], ['30'], [''], ['text']];
 const avgStart = data1(avgGrid.map(r => r[0]));
 formulaRows(avgStart, [
-  ['=AVG(A1:A3)', avgGrid],
   ['=AVERAGE(A1:A3)', avgGrid],
-  ['=AVG(A1:A5)', avgGrid, null, 'DIFFERENCE: plugin treats blank+text as 0 → avg over 5; Sheets skips them → avg over 3 = 20'],
+  ['=AVERAGE(A1:A5)', avgGrid, null, 'DIFFERENCE: plugin treats blank+text as 0 → avg over 5; Sheets skips them → avg over 3 = 20'],
 ]);
 
 // ── MEDIAN ────────────────────────────────────────────────────────────────────
@@ -175,9 +174,8 @@ for (const [f, note] of [
   ['=ROUND(-2.5,0)', 'Half away from zero → -3; Sheets does the same'],
   ['=FLOOR(2.9)', ''],
   ['=FLOOR(-2.1)', ''],
-  ['=CEIL(2.1)', 'Plugin: CEIL; Sheets: CEILING (auto-translated in col D)'],
-  ['=CEIL(-2.9)', ''],
   ['=CEILING(2.1)', ''],
+  ['=CEILING(-2.9)', ''],
   ['=INT(2.9)', ''],
   ['=INT(-2.1)', ''],
   ['=TRUNC(2.9,0)', ''],
@@ -205,7 +203,7 @@ for (const [f, override, note] of [
   ['=EXP(1)', null, ''],
   ['=LOG(8,2)', null, ''],
   ['=LOG(100,10)', null, ''],
-  ['=LOG(8)', '=LN(8)', 'DIFFERENCE: plugin LOG(x) = natural log; Sheets LOG(x) = log base 10. Use LN(8) in Sheets.'],
+  ['=LOG(8)', null, ''],
   ['=LOG10(1000)', null, ''],
   ['=PI()', null, ''],
   ['=ROUND(PI(),5)', null, ''],
@@ -218,7 +216,7 @@ section('NESTED FORMULAS');
 const nestGrid = [['3'], ['4'], ['5']];
 const nestStart = data1(nestGrid.map(r => r[0]));
 formulaRows(nestStart, [
-  ['=ROUND(AVG(A1:A3),2)', nestGrid],
+  ['=ROUND(AVERAGE(A1:A3),2)', nestGrid],
   ['=SUM(A1:A3)*1.1', nestGrid],
   ['=SQRT(POW(A1,2))', nestGrid],
 ]);
