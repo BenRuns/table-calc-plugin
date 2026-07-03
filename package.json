@@ -3,9 +3,11 @@
   "scripts": {
     "build": "esbuild src/main.js --bundle --external:obsidian --format=cjs --outfile=main.js",
     "dev": "esbuild src/main.js --bundle --external:obsidian --format=cjs --outfile=main.js --watch",
+    "lint": "biome check src/main.js engine.js engine.test.js main.test.js",
     "test": "node --test engine.test.js main.test.js"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.2",
     "esbuild": "^0.28.1",
     "jsdom": "^24.1.3"
   }

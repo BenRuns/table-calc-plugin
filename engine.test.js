@@ -49,7 +49,7 @@ test('evalFormula: unknown function returns #NAME?', () => {
 test('evalFormula: dangerous expression blocked', () => {
   // Function calls with unknown names return #NAME?
   // Non-function dangerous strings (with quotes/identifiers) hit the safe-math guard and return #ERR
-  const isError = v => v === '#NAME?' || v === '#ERR';
+  const isError = (v) => v === '#NAME?' || v === '#ERR';
   assert.ok(isError(evalFormula('=alert(1)', [])), 'alert() should be blocked');
   assert.ok(isError(evalFormula('=require("fs")', [])), 'require() should be blocked');
   assert.ok(isError(evalFormula('=process.exit()', [])), 'process.exit() should be blocked');
@@ -58,7 +58,10 @@ test('evalFormula: dangerous expression blocked', () => {
 // ─── evalFormula — cell references ───────────────────────────────────────────
 
 test('evalFormula: single cell reference', () => {
-  const grid = [['10', '20'], ['30', '40']];
+  const grid = [
+    ['10', '20'],
+    ['30', '40'],
+  ];
   assert.equal(evalFormula('=A1', grid), 10);
   assert.equal(evalFormula('=B2', grid), 40);
   assert.equal(evalFormula('=A1+B1', grid), 30);
@@ -89,7 +92,10 @@ test('SUM: row range', () => {
 });
 
 test('SUM: 2D range', () => {
-  const grid = [['1', '2'], ['3', '4']];
+  const grid = [
+    ['1', '2'],
+    ['3', '4'],
+  ];
   assert.equal(evalFormula('=SUM(A1:B2)', grid), 10);
 });
 
@@ -111,7 +117,7 @@ test('AVERAGE: basic average', () => {
 });
 
 test('AVERAGE: empty range returns 0', () => {
-  const grid = [[''], [''], ['']]
+  const grid = [[''], [''], ['']];
   assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), 0);
 });
 
@@ -159,7 +165,7 @@ test('arithmetic: division', () => {
 test('arithmetic: grouped expression respects precedence', () => {
   const grid = [['2', '3', '4']];
   assert.equal(evalFormula('=(A1+B1)*C1', grid), 20); // (2+3)*4
-  assert.equal(evalFormula('=A1+B1*C1', grid), 14);   // 2+3*4 (no grouping)
+  assert.equal(evalFormula('=A1+B1*C1', grid), 14); // 2+3*4 (no grouping)
 });
 
 // ─── Mixed formulas (README examples) ────────────────────────────────────────
@@ -192,9 +198,9 @@ test('README budget: remaining = budget - spent', () => {
   // A=Category, B=Budget, C=Spent, D=Remaining
   const grid = [
     ['LLC setup', '500', '200', '=B1-C1'],
-    ['Dev tools', '200', '99',  '=B2-C2'],
-    ['Marketing', '300', '0',   '=B3-C3'],
-    ['Total',     '=SUM(B1:B3)', '=SUM(C1:C3)', '=SUM(D1:D3)'],
+    ['Dev tools', '200', '99', '=B2-C2'],
+    ['Marketing', '300', '0', '=B3-C3'],
+    ['Total', '=SUM(B1:B3)', '=SUM(C1:C3)', '=SUM(D1:D3)'],
   ];
   assert.equal(evalFormula('=B1-C1', grid), 300);
   assert.equal(evalFormula('=B2-C2', grid), 101);
@@ -208,13 +214,13 @@ test('README sales: revenue and tax columns', () => {
   // A=Product, B=Price, C=Units, D=Revenue, E=Tax
   const grid = [
     ['Widget', '29', '12', '=B1*C1', '=D1*0.1'],
-    ['Gadget', '49', '7',  '=B2*C2', '=D2*0.1'],
-    ['Totals', '',   '',   '=SUM(D1:D2)', '=SUM(E1:E2)'],
+    ['Gadget', '49', '7', '=B2*C2', '=D2*0.1'],
+    ['Totals', '', '', '=SUM(D1:D2)', '=SUM(E1:E2)'],
   ];
-  assert.equal(evalFormula('=B1*C1', grid), 348);    // 29*12
-  assert.equal(evalFormula('=B2*C2', grid), 343);    // 49*7
-  assert.equal(evalFormula('=D1*0.1', grid), 34.8);  // 348*0.1
-  assert.equal(evalFormula('=D2*0.1', grid), 34.3);  // 343*0.1
+  assert.equal(evalFormula('=B1*C1', grid), 348); // 29*12
+  assert.equal(evalFormula('=B2*C2', grid), 343); // 49*7
+  assert.equal(evalFormula('=D1*0.1', grid), 34.8); // 348*0.1
+  assert.equal(evalFormula('=D2*0.1', grid), 34.3); // 343*0.1
   assert.equal(evalFormula('=SUM(D1:D2)', grid), 691);
 });
 
@@ -275,9 +281,9 @@ test('FLOOR/CEILING/TRUNC/INT/SIGN', () => {
 
 test('EXP/LN/LOG/LOG10/PI', () => {
   assert.equal(evalFormula('=LOG10(100)', []), 2);
-  assert.equal(evalFormula('=LOG(100)', []), 2);           // single-arg LOG is base-10
-  assert.equal(evalFormula('=LOG(8,2)', []), 3);           // two-arg LOG uses given base
-  assert.equal(evalFormula('=LN(1)', []), 0);              // LN is natural log
+  assert.equal(evalFormula('=LOG(100)', []), 2); // single-arg LOG is base-10
+  assert.equal(evalFormula('=LOG(8,2)', []), 3); // two-arg LOG uses given base
+  assert.equal(evalFormula('=LN(1)', []), 0); // LN is natural log
   assert.equal(evalFormula('=ROUND(LN(8),4)', []), 2.0794);
   assert.equal(evalFormula('=ROUND(PI(),2)', []), 3.14);
   assert.equal(evalFormula('=ROUND(EXP(1),2)', []), 2.72);
@@ -407,7 +413,7 @@ test('robustness: malformed expressions return #ERR instead of throwing', () => 
 test('robustness: a deeply nested formula resolves past the old 10-pass cap', () => {
   let f = '-1';
   for (let i = 0; i < 15; i++) f = `ABS(${f})`;
-  assert.equal(evalFormula('=' + f, []), 1);
+  assert.equal(evalFormula(`=${f}`, []), 1);
 });
 
 // ─── evalFormula — nested function errors propagate ──────────────────────────
@@ -445,9 +451,9 @@ test('non-numeric cells: MIN/MAX skip text cells instead of treating them as 0',
 // ─── evalFormula — LOG argument validation ────────────────────────────────────
 
 test('LOG: single-arg is base-10; two-arg uses given base; invalid base errors', () => {
-  assert.equal(evalFormula('=LOG(100)', []), 2);           // single-arg = base-10
-  assert.equal(evalFormula('=LOG(8,2)', []), 3);           // two-arg custom base
-  assert.equal(evalFormula('=LOG(8,abc)', []), '#ERR');    // invalid base still errors
+  assert.equal(evalFormula('=LOG(100)', []), 2); // single-arg = base-10
+  assert.equal(evalFormula('=LOG(8,2)', []), 3); // two-arg custom base
+  assert.equal(evalFormula('=LOG(8,abc)', []), '#ERR'); // invalid base still errors
   assert.equal(evalFormula('=LN(8)', []), parseFloat(Math.log(8).toFixed(8))); // LN = natural log
 });
 
@@ -483,11 +489,10 @@ test('formatResult: integers stay integers', () => {
 });
 
 test('formatResult: floats trimmed to 6 decimal places', () => {
-  assert.equal(formatResult(3.141592653589793), '3.141593');
+  assert.equal(formatResult(Math.PI), '3.141593');
 });
 
 test('formatResult: error strings pass through', () => {
   assert.equal(formatResult('#ERR'), '#ERR');
   assert.equal(formatResult('#NAME?'), '#NAME?');
 });
-

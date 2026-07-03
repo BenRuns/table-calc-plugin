@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const Module = require('module');
+const Module = require('node:module');
 const { JSDOM } = require('jsdom');
 
 // src/main.js does require('obsidian') at load time; that module only
@@ -16,9 +16,9 @@ const mockObsidian = {
   Notice: class Notice {},
 };
 const originalLoad = Module._load;
-Module._load = function (request, parent, isMain) {
+Module._load = function (request, ...args) {
   if (request === 'obsidian') return mockObsidian;
-  return originalLoad.apply(this, arguments);
+  return originalLoad.apply(this, [request, ...args]);
 };
 
 const TableCalcPlugin = require('./src/main');
@@ -85,7 +85,7 @@ test('Reading View: processTable replaces formula text with the computed value',
   assert.equal(resultCell.getAttribute('data-formula'), '=B1+C1');
 });
 
-test('Live Preview: processTable never mutates a formula cell\'s text or child nodes', () => {
+test("Live Preview: processTable never mutates a formula cell's text or child nodes", () => {
   // Regression test. An earlier version replaced td.textContent with the
   // computed value in Live Preview too, the same as Reading View. Obsidian's
   // LP table cells are natively click-to-edit and CM6 maps clicks to source
@@ -107,7 +107,11 @@ test('Live Preview: processTable never mutates a formula cell\'s text or child n
   processTable(tableEl, { copyFormat: 'csv', copyContent: 'values' }, 'test.md');
 
   assert.equal(formulaCell.textContent, textBefore, 'Live Preview must not rewrite cell text');
-  assert.equal(formulaCell.childNodes.length, childCountBefore, 'Live Preview must not add/remove child nodes');
+  assert.equal(
+    formulaCell.childNodes.length,
+    childCountBefore,
+    'Live Preview must not add/remove child nodes',
+  );
   assert.equal(formulaCell.getAttribute('data-formula'), '=B1+C1');
 });
 
@@ -142,7 +146,10 @@ test('Live Preview: processTable inserts column-header/row-number decoration', (
 
   processTable(tableEl, { copyFormat: 'csv', copyContent: 'values' }, 'test.md');
 
-  assert.ok(tableEl.querySelector('.table-calc-col-headers'), 'column-letter header row should be added');
+  assert.ok(
+    tableEl.querySelector('.table-calc-col-headers'),
+    'column-letter header row should be added',
+  );
   assert.ok(tableEl.querySelector('.table-calc-corner'), 'corner cell(s) should be added');
 });
 
@@ -163,5 +170,8 @@ test('Live Preview: a second pass after decoration does not shift column referen
   processTable(tableEl, { copyFormat: 'csv', copyContent: 'values' }, 'test.md'); // first pass: adds decoration
   processTable(tableEl, { copyFormat: 'csv', copyContent: 'values' }, 'test.md'); // second pass: must not re-shift
 
-  assert.ok(formulaCell.title.includes('15'), 'B1+C1 should still resolve to 15, not shift to reference the row-label/text columns');
+  assert.ok(
+    formulaCell.title.includes('15'),
+    'B1+C1 should still resolve to 15, not shift to reference the row-label/text columns',
+  );
 });
