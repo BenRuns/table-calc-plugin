@@ -6,20 +6,21 @@ Add spreadsheet-style formulas to your markdown tables. Write `=SUM(A1:A5)`, `=B
 
 ## Quick Start
 
-Add `{calc}` as the first header cell to opt a table into formula evaluation:
+Add `{{calc}}` on the line immediately above your table to opt it into formula evaluation:
 
 ```markdown
-| {calc} | Item        | Cost | Qty | Total      |
-|--------|-------------|------|-----|------------|
-|        | LLC filing  | 200  | 1   | =B1*C1     |
-|        | Dev account | 99   | 1   | =B2*C2     |
-|        | Accountant  | 250  | 1   | =B3*C3     |
-|        | **Total**   |      |     | =SUM(D1:D3)|
+{{calc}}
+| Item        | Cost | Qty | Total       |
+|-------------|------|-----|-------------|
+| LLC filing  | 200  | 1   | =B1*C1      |
+| Dev account | 99   | 1   | =B2*C2      |
+| Accountant  | 250  | 1   | =B3*C3      |
+| **Total**   |      |     | =SUM(D1:D3) |
 ```
 
-The `{calc}` column is automatically converted into a row-number column. Column letters (A, B, C…) appear above the header so you always know which column to reference.
+The plugin hides the `{{calc}}` marker and adds column letters (A, B, C…) above the header and row numbers on the left so you always know which cell to reference.
 
-Tables without `{calc}` are left completely untouched.
+Tables without a `{{calc}}` marker are left completely untouched.
 
 ---
 
@@ -27,8 +28,8 @@ Tables without `{calc}` are left completely untouched.
 
 | Label | Meaning |
 |-------|---------|
-| `A1`  | Row 1, first data column (after `{calc}`) |
-| `B2`  | Row 2, second data column |
+| `A1`  | Row 1, first column |
+| `B2`  | Row 2, second column |
 | `A1:A5` | Range: column A, rows 1 through 5 |
 | `A1:C3` | 2D range: columns A–C, rows 1–3 |
 
@@ -114,22 +115,24 @@ When you click into a formula cell in Live Preview, the raw formula reappears fo
 ## Example: Budget Tracker
 
 ```markdown
-| {calc} | Category     | Budget | Spent  | Remaining  |
-|--------|--------------|--------|--------|------------|
-|        | LLC setup    | 500    | 200    | =B1-C1     |
-|        | Dev tools    | 200    | 99     | =B2-C2     |
-|        | Marketing    | 300    | 0      | =B3-C3     |
-|        | **Total**    | =SUM(B1:B3) | =SUM(C1:C3) | =SUM(D1:D3) |
+{{calc}}
+| Category     | Budget      | Spent       | Remaining   |
+|--------------|-------------|-------------|-------------|
+| LLC setup    | 500         | 200         | =B1-C1      |
+| Dev tools    | 200         | 99          | =B2-C2      |
+| Marketing    | 300         | 0           | =B3-C3      |
+| **Total**    | =SUM(B1:B3) | =SUM(C1:C3) | =SUM(D1:D3) |
 ```
 
 ## Example: Sales Table
 
 ```markdown
-| {calc} | Product | Price | Units | Revenue     | Tax (10%)    |
-|--------|---------|-------|-------|-------------|--------------|
-|        | Widget  | 29    | 12    | =B1*C1      | =D1*0.1      |
-|        | Gadget  | 49    | 7     | =B2*C2      | =D2*0.1      |
-|        | Totals  |       |       | =SUM(D1:D2) | =SUM(E1:E2)  |
+{{calc}}
+| Product | Price | Units | Revenue     | Tax (10%)   |
+|---------|-------|-------|-------------|-------------|
+| Widget  | 29    | 12    | =B1*C1      | =D1*0.1     |
+| Gadget  | 49    | 7     | =B2*C2      | =D2*0.1     |
+| Totals  |       |       | =SUM(D1:D2) | =SUM(E1:E2) |
 ```
 
 ---
@@ -155,7 +158,7 @@ When you click into a formula cell in Live Preview, the raw formula reappears fo
 
 | Command | Description |
 |---------|-------------|
-| `Evaluate table formulas in this note` | Re-runs formula evaluation on all `{calc}` tables in the active note. Useful if a table doesn't update automatically. |
+| `Evaluate table formulas in this note` | Re-runs formula evaluation on all `{{calc}}` tables in the active note. Useful if a table doesn't update automatically. |
 
 Access via `Cmd+P` (Mac) or `Ctrl+P` (Windows/Linux).
 
@@ -163,7 +166,7 @@ Access via `Cmd+P` (Mac) or `Ctrl+P` (Windows/Linux).
 
 ## How It Works
 
-Formulas are stored as plain text in your markdown file — the plugin never modifies the source. A MutationObserver watches for rendered tables and evaluates any `=formula` cells on the fly. In Reading view the cell's display is replaced with the computed result; in Live Preview the raw formula stays visible (tinted, since those cells are natively click-to-edit and rewriting their text would break Obsidian's cursor placement) and the result shows as a tooltip on hover instead.
+Formulas are stored as plain text in your markdown file — the plugin never modifies the source. A MutationObserver watches for rendered tables and evaluates any `=formula` cells on the fly. Only tables immediately preceded by a `{{calc}}` paragraph are processed; all others are ignored. In Reading view the cell's display is replaced with the computed result; in Live Preview the raw formula stays visible (tinted, since those cells are natively click-to-edit and rewriting their text would break Obsidian's cursor placement) and the result shows as a tooltip on hover instead.
 
 This means your notes remain portable: open them anywhere and you'll see the raw formulas. Enable the plugin and you see the results.
 
