@@ -20,6 +20,37 @@ table th.table-calc-row-label {
   padding: 1px 4px;
 }
 
+/* ─── CSV button ─────────────────────────────────────────────── */
+
+.table-calc-corner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+}
+
+.table-calc-csv-btn {
+  font-size: 0.6em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 1px 3px;
+  border-radius: 3px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.table-calc-csv-btn:hover {
+  opacity: 1;
+  color: var(--color-accent);
+}
+
 /* ─── Formula cells ─────────────────────────────────────────── */
 
 .table-calc-cell {
@@ -32,4 +63,27 @@ table th.table-calc-row-label {
   color: var(--text-error);
   font-size: 0.85em;
   cursor: help;
+}
+
+/* ─── Live Preview formula cells ────────────────────────────────
+   Live Preview cells are natively click-to-edit in Obsidian, and CM6's
+   cursor mapping depends on the rendered text matching the source
+   character-for-character — so unlike Reading Mode, these cells keep their
+   raw "=..." text in the DOM completely untouched (confirmed by testing:
+   both replacing text and injecting ::after content broke things — the
+   latter overflowed Obsidian's fixed-height LP table cells and bled into
+   neighboring rows). Only a color tint (no content, no layout impact) plus
+   a native title-attribute tooltip shows the computed value on hover. */
+
+.table-calc-lp-formula,
+.table-calc-lp-error {
+  cursor: help;
+}
+
+.table-calc-lp-formula {
+  color: var(--color-accent);
+}
+
+.table-calc-lp-error {
+  color: var(--text-error);
 }
