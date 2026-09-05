@@ -376,9 +376,9 @@ test('scientific notation: literal exponent syntax in a formula', () => {
 
 test('parseFloat gotcha: literal "Infinity" text is not numeric', () => {
   const grid = [['Infinity'], ['10']];
-  // A text cell invalidates SUM/AVERAGE and any formula that references it
-  // directly, rather than silently contributing/substituting 0.
-  assert.equal(evalFormula('=SUM(A1:A2)', grid), '#ERR');
+  // SUM/AVERAGE skip text cells in a range (matching Excel/Sheets), but a
+  // formula that references a text cell directly still errors.
+  assert.equal(evalFormula('=SUM(A1:A2)', grid), 10);
   assert.equal(evalFormula('=COUNT(A1:A2)', grid), 1);
   assert.equal(evalFormula('=A1+5', grid), '#ERR');
 });
@@ -459,7 +459,10 @@ test('non-numeric cells: MIN/MAX skip text cells instead of treating them as 0',
   assert.equal(evalFormula('=MAX(A1:A3)', grid), 10);
 });
 
-// ─── evalFormula — text cells error instead of silently becoming 0 ──────────
+// ─── evalFormula — text cells: direct references error, range funcs skip ────
+// Matches Excel/Sheets: a bare reference to a text cell (=A1, =A1+5) errors
+// like #VALUE!, but SUM/AVERAGE/MIN/MAX/etc. over a range simply skip text
+// cells rather than erroring or treating them as 0.
 
 test('text cells: a direct reference to a text cell errors', () => {
   assert.equal(evalFormula('=A1', [['hello']]), '#ERR');
@@ -472,18 +475,18 @@ test('text cells: a blank cell still silently contributes 0 to a direct referenc
   assert.equal(evalFormula('=A1', [['']]), 0);
 });
 
-test('text cells: SUM/AVERAGE error if any referenced cell is text', () => {
+test('text cells: SUM/AVERAGE skip text cells in a range instead of erroring', () => {
   const grid = [['5'], ['text'], ['10']];
-  assert.equal(evalFormula('=SUM(A1:A3)', grid), '#ERR');
-  assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), '#ERR');
-  assert.equal(evalFormula('=SUM(A1,B1)', [['5', 'abc']]), '#ERR');
+  assert.equal(evalFormula('=SUM(A1:A3)', grid), 15);
+  assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), 7.5);
+  assert.equal(evalFormula('=SUM(A1,B1)', [['5', 'abc']]), 5);
 });
 
-test('text cells: SUM/AVERAGE still treat blank cells as 0, not an error', () => {
+test('text cells: SUM/AVERAGE still treat blank cells as 0, not skipped', () => {
   const grid = [['10'], [''], ['30']];
   assert.equal(evalFormula('=SUM(A1:A3)', grid), 40);
-  // The blank cell still counts toward AVERAGE's denominator as a 0 (unchanged,
-  // pre-existing behavior) — it just doesn't error the way a text cell would.
+  // The blank cell still counts toward AVERAGE's denominator as a 0
+  // (unchanged, pre-existing behavior) — only actual text is skipped.
   assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), parseFloat((40 / 3).toFixed(8)));
 });
 

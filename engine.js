@@ -126,9 +126,8 @@ function evalFormula(formula, grid, depth) {
       expr = expr.replace(/([A-Z][A-Z0-9]*)\(([^()]*)\)/gi, (_, fn, args) => {
         if (earlyError) return 0;
         const pairs = resolveArgs(args, grid, depth);
-        // `nums`: every resolved value; blank cells contribute 0, but an
-        // actual text cell (see isTextCell) invalidates SUM/AVERAGE below
-        // rather than silently contributing 0.
+        // `nums`: every resolved value, including the 0s that blank cells
+        // contribute — used by single-value functions (ABS, ROUND, ...) below.
         const nums = pairs
           .map((p) => p.num)
           .filter((v) => typeof v === 'number' && Number.isFinite(v));
@@ -139,22 +138,19 @@ function evalFormula(formula, grid, depth) {
         const numericVals = pairs
           .filter((p) => p.raw !== '' && !Number.isNaN(parseCellNumber(p.raw)))
           .map((p) => p.num);
-        const hasTextCell = pairs.some((p) => isTextCell(p.raw));
+        // `nonTextNums`: like `nums`, but drops actual text cells (blanks
+        // still contribute 0). Matches Excel/Sheets, which skip text cells
+        // in a SUM/AVERAGE range rather than erroring or treating them as 0.
+        const nonTextNums = pairs.filter((p) => !isTextCell(p.raw)).map((p) => p.num);
         let result;
         switch (fn.toUpperCase()) {
           case 'SUM':
-            if (hasTextCell) {
-              earlyError = '#ERR';
-              return 0;
-            }
-            result = nums.reduce((a, b) => a + b, 0);
+            result = nonTextNums.reduce((a, b) => a + b, 0);
             break;
           case 'AVERAGE':
-            if (hasTextCell) {
-              earlyError = '#ERR';
-              return 0;
-            }
-            result = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+            result = nonTextNums.length
+              ? nonTextNums.reduce((a, b) => a + b, 0) / nonTextNums.length
+              : 0;
             break;
           // reduce (not Math.min/max(...nums)) avoids RangeError: Maximum
           // call stack size exceeded when spreading very large ranges.
