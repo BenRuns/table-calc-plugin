@@ -31,6 +31,14 @@ function parseCellNumber(str) {
   return CELL_NUMBER_RE.test(str) ? parseFloat(str.replace(/,/g, '')) : NaN;
 }
 
+// A cell "is text" for error-propagation purposes if it's non-blank, isn't a
+// nested formula (those resolve/error on their own), and isn't a well-formed
+// numeral. Blank cells stay silent 0s; only actual text should invalidate
+// the formula that references it.
+function isTextCell(raw) {
+  return raw !== '' && !raw.startsWith('=') && Number.isNaN(parseCellNumber(raw));
+}
+
 function getGridValue(grid, r, c, depth) {
   if (depth <= 0 || r < 0 || r >= grid.length) return 0;
   const raw = getRawCell(grid, r, c);
@@ -118,9 +126,9 @@ function evalFormula(formula, grid, depth) {
       expr = expr.replace(/([A-Z][A-Z0-9]*)\(([^()]*)\)/gi, (_, fn, args) => {
         if (earlyError) return 0;
         const pairs = resolveArgs(args, grid, depth);
-        // `nums`: every resolved value, including the 0s that blank/text
-        // range cells contribute — matches the documented SUM/AVERAGE convention
-        // (a non-numeric cell "contributes 0" rather than being skipped).
+        // `nums`: every resolved value; blank cells contribute 0, but an
+        // actual text cell (see isTextCell) invalidates SUM/AVERAGE below
+        // rather than silently contributing 0.
         const nums = pairs
           .map((p) => p.num)
           .filter((v) => typeof v === 'number' && Number.isFinite(v));
@@ -131,12 +139,21 @@ function evalFormula(formula, grid, depth) {
         const numericVals = pairs
           .filter((p) => p.raw !== '' && !Number.isNaN(parseCellNumber(p.raw)))
           .map((p) => p.num);
+        const hasTextCell = pairs.some((p) => isTextCell(p.raw));
         let result;
         switch (fn.toUpperCase()) {
           case 'SUM':
+            if (hasTextCell) {
+              earlyError = '#ERR';
+              return 0;
+            }
             result = nums.reduce((a, b) => a + b, 0);
             break;
           case 'AVERAGE':
+            if (hasTextCell) {
+              earlyError = '#ERR';
+              return 0;
+            }
             result = nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
             break;
           // reduce (not Math.min/max(...nums)) avoids RangeError: Maximum
@@ -245,10 +262,20 @@ function evalFormula(formula, grid, depth) {
     } while (!earlyError && expr !== prevExpr && ++passes < 100);
     if (earlyError) return earlyError;
 
+    // A bare reference (=A1, =A1+5, ...) to a cell containing actual text
+    // invalidates the whole formula instead of silently substituting 0 —
+    // unlike a blank cell, which stays a silent 0.
+    let directRefError = false;
     expr = expr.replace(/\b([A-Z]\d+)\b/gi, (_, ref) => {
       const pos = parseRef(ref);
-      return pos ? getGridValue(grid, pos.r, pos.c, depth) : 0;
+      if (!pos) return 0;
+      if (isTextCell(getRawCell(grid, pos.r, pos.c))) {
+        directRefError = true;
+        return 0;
+      }
+      return getGridValue(grid, pos.r, pos.c, depth);
     });
+    if (directRefError) return '#ERR';
 
     // '^' isn't a JS operator (it's bitwise XOR), so translate the spreadsheet
     // exponent syntax to '**' before validating/evaluating the expression.

@@ -376,9 +376,11 @@ test('scientific notation: literal exponent syntax in a formula', () => {
 
 test('parseFloat gotcha: literal "Infinity" text is not numeric', () => {
   const grid = [['Infinity'], ['10']];
-  assert.equal(evalFormula('=SUM(A1:A2)', grid), 10); // "Infinity" contributes 0, not Infinity
+  // A text cell invalidates SUM/AVERAGE and any formula that references it
+  // directly, rather than silently contributing/substituting 0.
+  assert.equal(evalFormula('=SUM(A1:A2)', grid), '#ERR');
   assert.equal(evalFormula('=COUNT(A1:A2)', grid), 1);
-  assert.equal(evalFormula('=A1+5', grid), 5); // text cell treated as 0, not Infinity
+  assert.equal(evalFormula('=A1+5', grid), '#ERR');
 });
 
 test('parseFloat gotcha: comma thousands separators are parsed, not truncated', () => {
@@ -392,14 +394,15 @@ test('parseFloat gotcha: comma thousands separators are parsed, not truncated', 
 test('comma thousands separators: valid groupings parse, invalid ones stay text', () => {
   assert.equal(evalFormula('=A1', [['1,234,567.89']]), 1234567.89);
   assert.equal(evalFormula('=A1', [['-1,234']]), -1234);
-  // Malformed grouping (not exactly 3 digits per group) is left as text/0.
-  assert.equal(evalFormula('=A1', [['12,34']]), 0);
-  assert.equal(evalFormula('=A1', [['1,23,456']]), 0);
+  // Malformed grouping (not exactly 3 digits per group) is left as text,
+  // and a direct reference to a text cell errors rather than silently 0-ing.
+  assert.equal(evalFormula('=A1', [['12,34']]), '#ERR');
+  assert.equal(evalFormula('=A1', [['1,23,456']]), '#ERR');
 });
 
 test('parseFloat gotcha: trailing garbage is not partially parsed', () => {
   const grid = [['5 apples']];
-  assert.equal(evalFormula('=A1', grid), 0);
+  assert.equal(evalFormula('=A1', grid), '#ERR');
   assert.equal(evalFormula('=COUNT(A1:A1)', grid), 0);
 });
 
@@ -454,6 +457,40 @@ test('non-numeric cells: MIN/MAX skip text cells instead of treating them as 0',
   const grid = [['5'], ['text'], ['10']];
   assert.equal(evalFormula('=MIN(A1:A3)', grid), 5);
   assert.equal(evalFormula('=MAX(A1:A3)', grid), 10);
+});
+
+// ─── evalFormula — text cells error instead of silently becoming 0 ──────────
+
+test('text cells: a direct reference to a text cell errors', () => {
+  assert.equal(evalFormula('=A1', [['hello']]), '#ERR');
+  assert.equal(evalFormula('=A1+5', [['hello']]), '#ERR');
+  assert.equal(evalFormula('=A1*2', [['hello']]), '#ERR');
+});
+
+test('text cells: a blank cell still silently contributes 0 to a direct reference', () => {
+  assert.equal(evalFormula('=A1+5', [['']]), 5);
+  assert.equal(evalFormula('=A1', [['']]), 0);
+});
+
+test('text cells: SUM/AVERAGE error if any referenced cell is text', () => {
+  const grid = [['5'], ['text'], ['10']];
+  assert.equal(evalFormula('=SUM(A1:A3)', grid), '#ERR');
+  assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), '#ERR');
+  assert.equal(evalFormula('=SUM(A1,B1)', [['5', 'abc']]), '#ERR');
+});
+
+test('text cells: SUM/AVERAGE still treat blank cells as 0, not an error', () => {
+  const grid = [['10'], [''], ['30']];
+  assert.equal(evalFormula('=SUM(A1:A3)', grid), 40);
+  // The blank cell still counts toward AVERAGE's denominator as a 0 (unchanged,
+  // pre-existing behavior) — it just doesn't error the way a text cell would.
+  assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), parseFloat((40 / 3).toFixed(8)));
+});
+
+test('text cells: a formula-cell reference is not itself treated as text', () => {
+  const grid = [['=1+1'], ['5']];
+  assert.equal(evalFormula('=SUM(A1:A2)', grid), 7);
+  assert.equal(evalFormula('=A1+3', grid), 5);
 });
 
 // ─── evalFormula — LOG argument validation ────────────────────────────────────
