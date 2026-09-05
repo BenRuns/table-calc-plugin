@@ -381,12 +381,20 @@ test('parseFloat gotcha: literal "Infinity" text is not numeric', () => {
   assert.equal(evalFormula('=A1+5', grid), 5); // text cell treated as 0, not Infinity
 });
 
-test('parseFloat gotcha: comma thousands separators are not silently truncated', () => {
+test('parseFloat gotcha: comma thousands separators are parsed, not truncated', () => {
   // parseFloat('1,234') === 1 in raw JS — silently wrong rather than erroring.
-  // We now treat the whole cell as non-numeric text instead of guessing 1.
+  // A correctly-grouped separator is parsed as the number it represents.
   const grid = [['1,234'], ['10']];
-  assert.equal(evalFormula('=SUM(A1:A2)', grid), 10);
-  assert.equal(evalFormula('=COUNT(A1:A2)', grid), 1);
+  assert.equal(evalFormula('=SUM(A1:A2)', grid), 1244);
+  assert.equal(evalFormula('=COUNT(A1:A2)', grid), 2);
+});
+
+test('comma thousands separators: valid groupings parse, invalid ones stay text', () => {
+  assert.equal(evalFormula('=A1', [['1,234,567.89']]), 1234567.89);
+  assert.equal(evalFormula('=A1', [['-1,234']]), -1234);
+  // Malformed grouping (not exactly 3 digits per group) is left as text/0.
+  assert.equal(evalFormula('=A1', [['12,34']]), 0);
+  assert.equal(evalFormula('=A1', [['1,23,456']]), 0);
 });
 
 test('parseFloat gotcha: trailing garbage is not partially parsed', () => {

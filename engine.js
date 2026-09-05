@@ -21,8 +21,14 @@ function getRawCell(grid, r, c) {
 // invalid character (parseFloat('1,234') === 1, parseFloat('5 apples') === 5).
 // A cell containing that text almost never means the number it would yield,
 // so anything that isn't a complete, well-formed numeral is treated as text.
+//
+// Thousands separators are supported, but only when correctly grouped in
+// 3s (1,234 / 1,234,567.89) — a comma anywhere else (12,34) marks the cell
+// as malformed text rather than guessing at what it meant.
+const CELL_NUMBER_RE = /^[+-]?((\d+|\d{1,3}(?:,\d{3})+)(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i;
+
 function parseCellNumber(str) {
-  return /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i.test(str) ? parseFloat(str) : NaN;
+  return CELL_NUMBER_RE.test(str) ? parseFloat(str.replace(/,/g, '')) : NaN;
 }
 
 function getGridValue(grid, r, c, depth) {
