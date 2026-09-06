@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 2.1.0
+
+### Added
+
+- Comma thousands separators are now recognized in cell values (`1,234`, `1,234,567.89`) as long as groups are correctly sized — a comma placed anywhere else (`12,34`) is still treated as text, not guessed at.
+
+### Fixed
+
+- A text cell (non-blank, not a formula, not a valid number) referenced directly in a formula or passed to a single-value function — `=A1`, `=A1+5`, `=ABS(A1)`, `=ROUND(A1,2)` — now returns `#ERR` instead of silently computing as if the cell were `0`, matching Excel/Sheets' `#VALUE!` for direct arithmetic on text. A blank cell is unaffected and still contributes `0`.
+- `SUM`/`AVERAGE`/`MIN`/`MAX`/`MEDIAN`/`PRODUCT`/`STDEV`/`VAR` now skip text cells within a range instead of silently treating them as `0`, matching how Excel/Sheets handle text inside a range argument.
+- Errors now propagate through chained formula references: a formula that references another cell (directly, in a range, or as a function argument) whose own formula resolved to an error now also returns `#ERR`, instead of that error silently collapsing to `0` partway down the chain.
+- A range member that is itself a formula resolving to a number is now counted consistently by `MIN`/`MAX`/`COUNT`/`MEDIAN`/`PRODUCT`/`STDEV`/`VAR` (previously dropped by those functions while `SUM`/`AVERAGE` already counted it).
+
+## 2.0.0
 
 ### Breaking changes
 
