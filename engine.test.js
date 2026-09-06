@@ -496,6 +496,71 @@ test('text cells: a formula-cell reference is not itself treated as text', () =>
   assert.equal(evalFormula('=A1+3', grid), 5);
 });
 
+// ─── evalFormula — errors propagate through chained/nested formula refs ─────
+// Errors are contagious in spreadsheets: a formula that references another
+// formula cell which itself errored must also error, no matter how many
+// hops away or through which function. Text/blank are skipped by range
+// functions (above), but an actual error must never be silently absorbed.
+
+test('errors propagate: a bare reference to an errored formula cell errors', () => {
+  const grid = [['hello', '=A1', '=B1+1']];
+  assert.equal(evalFormula(grid[0][1], grid), '#ERR'); // B1 = =A1, A1 is text
+  assert.equal(evalFormula(grid[0][2], grid), '#ERR'); // C1 = =B1+1, chained
+});
+
+test('errors propagate: SUM/AVERAGE/MIN/MAX error if a range member cell itself errored', () => {
+  const grid = [['hello'], ['=A1'], ['20']];
+  assert.equal(evalFormula('=SUM(A1:A3)', grid), '#ERR');
+  assert.equal(evalFormula('=AVERAGE(A1:A3)', grid), '#ERR');
+  assert.equal(evalFormula('=MIN(A1:A3)', grid), '#ERR');
+  assert.equal(evalFormula('=MAX(A1:A3)', grid), '#ERR');
+});
+
+test('errors propagate: a single-value function errors if its argument cell itself errored', () => {
+  const grid = [['hello'], ['=A1']];
+  assert.equal(evalFormula('=ABS(A2)', grid), '#ERR');
+});
+
+// ─── evalFormula — SUM/AVERAGE: blank argument slots are not text ───────────
+
+test('SUM/AVERAGE: a blank argument slot (stray or trailing comma) is ignored, not an error', () => {
+  const grid = [['5'], ['3']];
+  assert.equal(evalFormula('=SUM(A1,,A2)', grid), 8);
+  assert.equal(evalFormula('=SUM(A1,A2,)', grid), 8);
+  // The blank slot counts as a 0 in AVERAGE's denominator too, same as a
+  // blank cell (established convention) — it just no longer poisons SUM.
+  assert.equal(evalFormula('=AVERAGE(A1,,A2)', grid), parseFloat((8 / 3).toFixed(8)));
+});
+
+// ─── evalFormula — single-value math functions error on text, like bare refs ─
+// Matches the direct-reference convention above: ABS(A1) is "A1, absolute
+// value", so a text A1 should error exactly like a bare =A1 would.
+
+test('single-value functions: a text argument errors instead of being treated as 0', () => {
+  const grid = [['hello']];
+  assert.equal(evalFormula('=ABS(A1)', grid), '#ERR');
+  assert.equal(evalFormula('=ROUND(A1,2)', grid), '#ERR');
+  assert.equal(evalFormula('=SQRT(A1)', grid), '#ERR');
+  assert.equal(evalFormula('=MOD(A1,2)', grid), '#ERR');
+});
+
+test('single-value functions: a blank argument still defaults to 0, not an error', () => {
+  assert.equal(evalFormula('=ABS(A1)', [['']]), 0);
+});
+
+// ─── evalFormula — MIN/MAX/COUNT/MEDIAN/PRODUCT/STDEV/VAR include formula cells ─
+// A range member that is itself a formula resolving to a number is a real
+// number, not "not text" special-cased away — it must count everywhere a
+// literal number would, consistent with SUM/AVERAGE.
+
+test('formula-cell range members: MIN/MAX/COUNT/PRODUCT count a formula cell like any number', () => {
+  const grid = [['=10'], ['1']];
+  assert.equal(evalFormula('=MAX(A1:A2)', grid), 10);
+  assert.equal(evalFormula('=MIN(A1:A2)', grid), 1);
+  assert.equal(evalFormula('=COUNT(A1:A2)', grid), 2);
+  assert.equal(evalFormula('=PRODUCT(A1:A2)', grid), 10);
+});
+
 // ─── evalFormula — LOG argument validation ────────────────────────────────────
 
 test('LOG: single-arg is base-10; two-arg uses given base; invalid base errors', () => {

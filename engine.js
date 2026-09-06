@@ -31,24 +31,59 @@ function parseCellNumber(str) {
   return CELL_NUMBER_RE.test(str) ? parseFloat(str.replace(/,/g, '')) : NaN;
 }
 
-// A cell "is text" for error-propagation purposes if it's non-blank, isn't a
-// nested formula (those resolve/error on their own), and isn't a well-formed
-// numeral. Blank cells stay silent 0s; only actual text should invalidate
-// the formula that references it.
-function isTextCell(raw) {
-  return raw !== '' && !raw.startsWith('=') && Number.isNaN(parseCellNumber(raw));
-}
+// Functions that take a specific single/positional argument (as opposed to
+// aggregating a whole range) treat a text argument the same way a bare
+// `=A1` reference does: the whole formula errors, matching Excel/Sheets'
+// #VALUE! for direct arithmetic on text.
+const SINGLE_VALUE_FNS = new Set([
+  'ABS',
+  'ROUND',
+  'FLOOR',
+  'INT',
+  'CEILING',
+  'TRUNC',
+  'SIGN',
+  'SQRT',
+  'POW',
+  'POWER',
+  'MOD',
+  'EXP',
+  'LN',
+  'LOG',
+  'LOG10',
+]);
 
-function getGridValue(grid, r, c, depth) {
-  if (depth <= 0 || r < 0 || r >= grid.length) return 0;
-  const raw = getRawCell(grid, r, c);
-  if (!raw) return 0;
-  if (raw.startsWith('=')) return +evalFormula(raw, grid, depth - 1) || 0;
+// Every cell/argument value flows through one of these two classifiers, so
+// there is exactly one place that decides "blank vs. text vs. number vs.
+// error" — every consumer (bare references, SUM/AVERAGE, MIN/MAX, ABS/ROUND,
+// COUNT/COUNTA, ...) reads the same verdict instead of each re-deriving its
+// own slightly-different notion of "is this usable".
+//   'blank'  — empty cell/argument slot; contributes 0, excluded from COUNTA
+//   'text'   — non-blank, non-formula, not a well-formed number
+//   'error'  — a formula that itself resolved to an error (e.g. '#ERR')
+//   'number' — a well-formed number, or a formula that resolved to one
+//
+// A literal argument typed directly in the formula (not a cell reference)
+// can never be 'error' — it isn't evaluated as a nested formula, matching
+// the pre-existing behavior for e.g. `=SUM(5, abc)`.
+function classifyLiteral(raw) {
+  if (raw === '') return { kind: 'blank', num: 0 };
   const n = parseCellNumber(raw);
-  return Number.isNaN(n) ? 0 : n;
+  return Number.isNaN(n) ? { kind: 'text', num: 0 } : { kind: 'number', num: n };
 }
 
-// resolveArgs returns { num, raw } pairs so COUNT can distinguish text from numbers.
+function classifyCell(grid, r, c, depth) {
+  if (depth <= 0) return { kind: 'blank', num: 0 };
+  const raw = getRawCell(grid, r, c);
+  if (raw.startsWith('=')) {
+    const result = evalFormula(raw, grid, depth - 1);
+    return typeof result === 'number' ? { kind: 'number', num: result } : { kind: 'error', num: 0 };
+  }
+  return classifyLiteral(raw);
+}
+
+// resolveArgs returns one classification per argument so callers can tell
+// blank, text, number, and error apart without re-parsing.
 function resolveArgs(argsStr, grid, depth) {
   const vals = [];
   for (const part of argsStr.split(',')) {
@@ -60,23 +95,21 @@ function resolveArgs(argsStr, grid, depth) {
       if (from && to) {
         for (let r = Math.min(from.r, to.r); r <= Math.max(from.r, to.r); r++)
           for (let c = Math.min(from.c, to.c); c <= Math.max(from.c, to.c); c++) {
-            const raw = getRawCell(grid, r, c);
-            vals.push({ num: getGridValue(grid, r, c, depth), raw });
+            vals.push(classifyCell(grid, r, c, depth));
           }
       }
       continue;
     }
     const ref = parseRef(t);
     if (ref) {
-      const raw = getRawCell(grid, ref.r, ref.c);
-      vals.push({ num: getGridValue(grid, ref.r, ref.c, depth), raw });
+      vals.push(classifyCell(grid, ref.r, ref.c, depth));
       continue;
     }
-    // Always push literal tokens, even unparseable ones (num: NaN) — callers
-    // that care about "was an argument provided" (e.g. LOG's 1-arg-vs-2-arg
-    // check) need an accurate arg count; silently dropping invalid literals
+    // Always push literal tokens, even unparseable ones — callers that care
+    // about "was an argument provided" (e.g. LOG's 1-arg-vs-2-arg check)
+    // need an accurate arg count; silently dropping invalid literals
     // previously made e.g. LOG(8, abc) look like a 1-arg call.
-    vals.push({ num: parseCellNumber(t), raw: t });
+    vals.push(classifyLiteral(t));
   }
   return vals;
 }
@@ -125,25 +158,41 @@ function evalFormula(formula, grid, depth) {
       prevExpr = expr;
       expr = expr.replace(/([A-Z][A-Z0-9]*)\(([^()]*)\)/gi, (_, fn, args) => {
         if (earlyError) return 0;
+        const fnName = fn.toUpperCase();
         const pairs = resolveArgs(args, grid, depth);
-        // `nums`: every resolved value, including the 0s that blank cells
-        // contribute — used by single-value functions (ABS, ROUND, ...) below.
-        const nums = pairs
-          .map((p) => p.num)
-          .filter((v) => typeof v === 'number' && Number.isFinite(v));
-        // `numericVals`: only genuinely numeric, non-blank entries. Functions
-        // where a phantom 0 would corrupt the result more than just skew a
-        // running total (PRODUCT zeroing out entirely, MEDIAN/STDEV/VAR
-        // treating a text cell as a real data point) use this instead.
-        const numericVals = pairs
-          .filter((p) => p.raw !== '' && !Number.isNaN(parseCellNumber(p.raw)))
-          .map((p) => p.num);
-        // `nonTextNums`: like `nums`, but drops actual text cells (blanks
-        // still contribute 0). Matches Excel/Sheets, which skip text cells
-        // in a SUM/AVERAGE range rather than erroring or treating them as 0.
-        const nonTextNums = pairs.filter((p) => !isTextCell(p.raw)).map((p) => p.num);
+        // An 'error' argument (a nested formula that itself errored) always
+        // invalidates the whole call — errors are contagious in spreadsheets,
+        // unlike blank/text which individual functions may skip below.
+        const hasError = pairs.some((p) => p.kind === 'error');
+        if (hasError) {
+          earlyError = '#ERR';
+          return 0;
+        }
+        // `nums`: every resolved value, positionally — blank contributes 0.
+        // Used by single-value functions (ABS, ROUND, ...), which separately
+        // gate on `hasText` below since they take a specific argument rather
+        // than aggregating a range.
+        const nums = pairs.map((p) => p.num);
+        const hasText = pairs.some((p) => p.kind === 'text');
+        // `numericVals`: only genuine numbers — blank AND text excluded.
+        // Used by functions where a phantom 0 would corrupt the result more
+        // than just skew a running total (PRODUCT zeroing out entirely,
+        // MIN/MAX/MEDIAN/STDEV/VAR treating a text cell as a real data point).
+        const numericVals = pairs.filter((p) => p.kind === 'number').map((p) => p.num);
+        // `nonTextNums`: like `nums`, but drops text (blanks still count as
+        // 0). Matches Excel/Sheets: SUM/AVERAGE skip text cells in a range
+        // rather than erroring or treating them as 0, but still count blanks.
+        const nonTextNums = pairs.filter((p) => p.kind !== 'text').map((p) => p.num);
+        // Functions that take a specific single/positional argument (as
+        // opposed to aggregating a whole range) treat a text argument the
+        // same way a bare `=A1` reference does: the whole formula errors,
+        // matching Excel/Sheets' #VALUE! for direct arithmetic on text.
+        if (hasText && SINGLE_VALUE_FNS.has(fnName)) {
+          earlyError = '#ERR';
+          return 0;
+        }
         let result;
-        switch (fn.toUpperCase()) {
+        switch (fnName) {
           case 'SUM':
             result = nonTextNums.reduce((a, b) => a + b, 0);
             break;
@@ -164,7 +213,7 @@ function evalFormula(formula, grid, depth) {
             result = numericVals.length;
             break;
           case 'COUNTA':
-            result = pairs.filter((p) => p.raw !== '').length;
+            result = pairs.filter((p) => p.kind !== 'blank').length;
             break;
           case 'ABS':
             result = Math.abs(nums[0] || 0);
@@ -236,7 +285,7 @@ function evalFormula(formula, grid, depth) {
             const mean = numericVals.reduce((a, b) => a + b, 0) / numericVals.length;
             const variance =
               numericVals.reduce((a, b) => a + (b - mean) ** 2, 0) / (numericVals.length - 1);
-            result = fn.toUpperCase() === 'VAR' ? variance : Math.sqrt(variance);
+            result = fnName === 'VAR' ? variance : Math.sqrt(variance);
             break;
           }
           default:
@@ -258,18 +307,21 @@ function evalFormula(formula, grid, depth) {
     } while (!earlyError && expr !== prevExpr && ++passes < 100);
     if (earlyError) return earlyError;
 
-    // A bare reference (=A1, =A1+5, ...) to a cell containing actual text
-    // invalidates the whole formula instead of silently substituting 0 —
-    // unlike a blank cell, which stays a silent 0.
+    // A bare reference (=A1, =A1+5, ...) to a cell containing actual text,
+    // or to a formula cell that itself resolved to an error, invalidates
+    // the whole formula instead of silently substituting 0 — unlike a
+    // blank cell, which stays a silent 0.
     let directRefError = false;
     expr = expr.replace(/\b([A-Z]\d+)\b/gi, (_, ref) => {
+      if (directRefError) return 0;
       const pos = parseRef(ref);
       if (!pos) return 0;
-      if (isTextCell(getRawCell(grid, pos.r, pos.c))) {
+      const cell = classifyCell(grid, pos.r, pos.c, depth);
+      if (cell.kind === 'text' || cell.kind === 'error') {
         directRefError = true;
         return 0;
       }
-      return getGridValue(grid, pos.r, pos.c, depth);
+      return cell.num;
     });
     if (directRefError) return '#ERR';
 
