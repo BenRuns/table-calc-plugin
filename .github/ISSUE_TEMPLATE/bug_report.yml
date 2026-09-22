@@ -1,0 +1,103 @@
+name: Bug report
+description: Report a problem with Table Calc
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue! Please fill in as much as you can so the problem can be reproduced.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the issue
+      description: What happened, and what did you expect to happen instead?
+      placeholder: |
+        When I use =SUM(A1:A3) in Live Preview, the result shows #ERR instead of 6.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Paste the sample markdown below into a note
+        2. Switch to Reading view
+        3. See error
+    validations:
+      required: false
+
+  - type: textarea
+    id: sample-markdown
+    attributes:
+      label: Sample markdown
+      description: Paste a minimal table (including the `{{calc}}` marker) that reproduces the issue. It will be formatted as markdown automatically.
+      render: markdown
+      placeholder: |
+        {{calc}}
+        | Item | Cost | Qty | Total       |
+        |------|------|-----|-------------|
+        | A    | 10   | 2   | =B1*C1      |
+        | B    | 5    | 3   | =B2*C2      |
+        | Sum  |      |     | =SUM(D1:D2) |
+    validations:
+      required: true
+
+  - type: dropdown
+    id: view-mode
+    attributes:
+      label: Which view shows the problem?
+      multiple: true
+      options:
+        - Live Preview
+        - Reading view
+        - Source mode
+        - Not sure
+
+  - type: input
+    id: obsidian-version
+    attributes:
+      label: Obsidian version
+      description: Found under Settings → General → App → Current version (include the installer version if shown).
+      placeholder: "e.g. 1.7.7 (installer 1.7.7)"
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Table Calc version
+      description: Found under Settings → Community plugins.
+      placeholder: "e.g. 2.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - iOS
+        - iPadOS
+        - Android
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device information
+      description: Device model and OS version.
+      placeholder: "e.g. MacBook Pro M2, macOS 15.1 / Pixel 8, Android 15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Screenshots, console errors (Ctrl/Cmd+Shift+I → Console), other plugins or themes that might interfere, etc.
