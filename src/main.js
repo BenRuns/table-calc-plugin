@@ -544,12 +544,7 @@ class TableCalcPlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on('file-open', async file => {
         if (!file) return;
-        if (file.extension === 'md') {
-          const source = await this.app.vault.read(file);
-          if (findAdjacentCalcMarkers(source.split('\n')).length > 0) {
-            await this.app.vault.process(file, insertBlankAfterCalcMarkers);
-          }
-        }
+        await this.fixFileCalcMarkers(file);
         this.buildFingerprints(file);
       })
     );
@@ -585,6 +580,13 @@ class TableCalcPlugin extends Plugin {
 
     this.app.workspace.iterateAllLeaves(leaf => this.attachObserver(leaf));
 
+    // Notes already open when the plugin loads never fire 'file-open'.
+    this.app.workspace.iterateAllLeaves(leaf => {
+      if (leaf.view instanceof MarkdownView && leaf.view.file) {
+        this.fixFileCalcMarkers(leaf.view.file);
+      }
+    });
+
     this.addCommand({
       id: 'evaluate',
       name: 'Evaluate table formulas in this note',
@@ -602,6 +604,15 @@ class TableCalcPlugin extends Plugin {
         return true;
       }
     });
+  }
+
+  // Same fix as fixAdjacentCalcMarkers, applied to a note's file on disk.
+  async fixFileCalcMarkers(file) {
+    if (file.extension !== 'md') return;
+    const source = await this.app.vault.read(file);
+    if (findAdjacentCalcMarkers(source.split('\n')).length > 0) {
+      await this.app.vault.process(file, insertBlankAfterCalcMarkers);
+    }
   }
 
   // Inserts the blank line Obsidian needs between {{calc}} and a table typed

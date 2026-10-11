@@ -21,7 +21,7 @@ Add `{{calc}}` above your table, separated by a blank line, to opt it into formu
 
 The plugin hides the `{{calc}}` marker and adds column letters (A, B, C…) above the header and row numbers on the left so you always know which cell to reference.
 
-Obsidian only renders a table that has a blank line above it, so if you type `{{calc}}` directly on the line above a table, the plugin inserts that blank line for you (as you type, and when a note is opened).
+Obsidian only renders a table that has a blank line above it, so if you type `{{calc}}` directly on the line above a table, the plugin inserts that blank line for you (as you type, when a note is opened, and in notes already open when the plugin loads).
 
 `{{calc}}` applies only to the one table directly below it. Tables without a `{{calc}}` marker are left completely untouched, and deleting a table's `{{calc}}` turns it back into a plain table straight away.
 

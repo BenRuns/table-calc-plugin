@@ -4,7 +4,7 @@
 
 ### Added
 
-- `{{calc}}` typed directly on the line above a table now works: Obsidian won't render a table without a blank line above it, so the plugin inserts that blank line (as you type, and when a note is opened). This is the only edit the plugin makes to a note. Callouts (`> {{calc}}`) are handled; markers inside fenced code blocks are left alone.
+- `{{calc}}` typed directly on the line above a table now works: Obsidian won't render a table without a blank line above it, so the plugin inserts that blank line (as you type, when a note is opened, and in notes already open when the plugin loads). This is the only edit the plugin makes to a note. Callouts (`> {{calc}}`) are handled; markers inside fenced code blocks are left alone.
 
 ### Fixed
 
