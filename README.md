@@ -6,10 +6,11 @@ Add spreadsheet-style formulas to your markdown tables. Write `=SUM(A1:A5)`, `=B
 
 ## Quick Start
 
-Add `{{calc}}` on the line immediately above your table to opt it into formula evaluation:
+Add `{{calc}}` above your table, separated by a blank line, to opt it into formula evaluation:
 
 ```markdown
 {{calc}}
+
 | Item        | Cost | Qty | Total       |
 |-------------|------|-----|-------------|
 | LLC filing  | 200  | 1   | =B1*C1      |
@@ -20,7 +21,9 @@ Add `{{calc}}` on the line immediately above your table to opt it into formula e
 
 The plugin hides the `{{calc}}` marker and adds column letters (A, B, C…) above the header and row numbers on the left so you always know which cell to reference.
 
-Tables without a `{{calc}}` marker are left completely untouched.
+Obsidian only renders a table that has a blank line above it, so if you type `{{calc}}` directly on the line above a table, the plugin inserts that blank line for you (as you type, when a note is opened, and in notes already open when the plugin loads).
+
+`{{calc}}` applies only to the one table directly below it. Tables without a `{{calc}}` marker are left completely untouched, and deleting a table's `{{calc}}` turns it back into a plain table straight away.
 
 ---
 
@@ -166,7 +169,7 @@ Access via `Cmd+P` (Mac) or `Ctrl+P` (Windows/Linux).
 
 ## How It Works
 
-Formulas are stored as plain text in your markdown file — the plugin never modifies the source. A MutationObserver watches for rendered tables and evaluates any `=formula` cells on the fly. Only tables immediately preceded by a `{{calc}}` paragraph are processed; all others are ignored. In Reading view the cell's display is replaced with the computed result; in Live Preview the raw formula stays visible (tinted, since those cells are natively click-to-edit and rewriting their text would break Obsidian's cursor placement) and the result shows as a tooltip on hover instead.
+Formulas are stored as plain text in your markdown file — the plugin never rewrites them. The only edit it ever makes to a note is inserting a blank line between `{{calc}}` and a table typed directly under it. A MutationObserver watches for rendered tables and evaluates any `=formula` cells on the fly. Only tables immediately preceded by a `{{calc}}` paragraph are processed; all others are ignored. In Reading view the cell's display is replaced with the computed result; in Live Preview the raw formula stays visible (tinted, since those cells are natively click-to-edit and rewriting their text would break Obsidian's cursor placement) and the result shows as a tooltip on hover instead.
 
 This means your notes remain portable: open them anywhere and you'll see the raw formulas. Enable the plugin and you see the results.
 
@@ -191,7 +194,7 @@ This means your notes remain portable: open them anywhere and you'll see the raw
 - Errors are contagious, like in a real spreadsheet: if a formula references another cell (directly, in a range, or as a function argument) whose own formula resolved to an error, the referencing formula also returns `#ERR` — it's never silently swallowed into `0` partway down a chain of formulas.
 - Numbers are standard JavaScript doubles (IEEE 754), the same numeric type spreadsheets like Excel use. Integers beyond `2^53` (~9 quadrillion) lose precision, and results are snapped to 8 decimal places to absorb ordinary binary floating-point drift (e.g. `0.1+0.2` reliably shows `0.3`, not `0.30000000000000004`)
 - `ROUND` rounds half away from zero (`ROUND(2.5,0)` → `3`, `ROUND(-2.5,0)` → `-3`), matching spreadsheet conventions rather than JavaScript's native `Math.round` (which rounds `-2.5` to `-2`)
-- References are positional, not tracked. `A2` always means "column A, row 2 of the table as it exists right now" — there's no concept of a formula "belonging" to a row. If you insert, delete, or reorder rows, formula text doesn't shift to compensate, so a formula can silently start pointing at the wrong cells. Re-check (or rewrite) formulas after restructuring a table. This is intentional: the plugin never modifies your markdown source, and auto-shifting references would require doing exactly that
+- References are positional, not tracked. `A2` always means "column A, row 2 of the table as it exists right now" — there's no concept of a formula "belonging" to a row. If you insert, delete, or reorder rows, formula text doesn't shift to compensate, so a formula can silently start pointing at the wrong cells. Re-check (or rewrite) formulas after restructuring a table. This is intentional: the plugin never rewrites your formulas, and auto-shifting references would require doing exactly that
 
 ---
 

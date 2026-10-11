@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+
+- `{{calc}}` typed directly on the line above a table now works: Obsidian won't render a table without a blank line above it, so the plugin inserts that blank line (as you type, when a note is opened, and in notes already open when the plugin loads). This is the only edit the plugin makes to a note. Callouts (`> {{calc}}`) are handled; markers inside fenced code blocks are left alone.
+
+### Fixed
+
+- `{{calc}}` no longer leaks onto other tables. It applies only to the table directly below it; previously a plain table could also be evaluated when it had the same header row as a calc table (Live Preview), shared a callout/section with a calc table, or followed a `{{calc}}` that had prose after it.
+- Deleting a `{{calc}}` marker now turns its table back into a plain table immediately, in both Reading View and Live Preview. Previously the table stayed evaluated until Obsidian was restarted, even across disabling and re-enabling the plugin.
+- Disabling the plugin now fully restores rendered tables (decoration, formula text) and shows `{{calc}}` markers again.
+
 ## 2.1.0
 
 ### Added

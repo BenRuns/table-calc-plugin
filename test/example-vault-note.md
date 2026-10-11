@@ -8,6 +8,8 @@ Every `Result`/`Expected` (or `Formula`/`Expected`) cell pair should match.
 Section 6 is a deliberate exception — those cells are meant to produce
 errors (#ERR / #NAME?) — and section 12's `Expected` column is itself the
 thing to check row-by-row (each row is meant to error).
+Section 13 checks marker scoping: every table labelled "plain" must stay
+unevaluated, so its `=` cells are expected to show as raw text.
 -->
 
 # Table Calc – Formula Test Suite
@@ -209,3 +211,84 @@ text cell directly; row 3 references row 2, which is itself an error.
 | 1: plain text, not a formula | hello | n/a |
 | 2: references row 1's text cell | =B1 | #ERR |
 | 3: references row 2, which itself errors | =B2+1 | #ERR |
+
+---
+
+## 13. `{{calc}}` Applies Only to the Table Right After It
+
+In each case below, the table marked **plain** must stay untouched: its
+`=` cells show as raw text (no accent color, no A/B/C column letters).
+Check in both Reading View and Live Preview.
+
+### 13a. Two tables back to back
+
+{{calc}}
+
+| Case | Value | Result | Expected |
+| ---- | ----- | ------ | -------- |
+| calc | 2 | =B1*10 | 20 |
+
+| Case | Value | Result | Expected |
+| ---- | ----- | ------ | -------- |
+| plain | 2 | =B1*10 | =B1*10 |
+
+### 13b. Plain table with the same header as an earlier calc table
+
+This copies the 13a calc table's header exactly, but has no marker. In Live
+Preview the plugin used to match tables by header row, which made this one
+evaluate too. The 13a calc table must still evaluate.
+
+| Case | Value | Result | Expected |
+| ---- | ----- | ------ | -------- |
+| plain (same header as 13a) | 3 | =B1*10 | =B1*10 |
+
+### 13c. Callout with `{{calc}}` followed by prose, then a table outside
+
+> [!note]
+> {{calc}}
+>
+> Prose after the marker means it has no table to attach to.
+
+| Case | Value | Result | Expected |
+| ---- | ----- | ------ | -------- |
+| plain (after callout) | 4 | =B1*10 | =B1*10 |
+
+### 13d. Callout with two tables — only the first is calc
+
+> [!note]
+> {{calc}}
+>
+> | Case | Value | Result | Expected |
+> | ---- | ----- | ------ | -------- |
+> | calc (in callout) | 5 | =B1*10 | 50 |
+>
+> Some text between the tables.
+>
+> | Case | Value | Result | Expected |
+> | ---- | ----- | ------ | -------- |
+> | plain (in callout) | 5 | =B1*10 | =B1*10 |
+
+### 13e. Deleting `{{calc}}` un-styles the table (interactive)
+
+This table starts out as calc. Delete the `{{calc}}` line above it: the
+table should go plain right away (raw `=B1*10`, no column letters) with no
+reload. Undo the delete and it should evaluate again. Try it in both views
+(edit in Live Preview, then switch to Reading View to check that too).
+
+{{calc}}
+
+| Case | Value | Result | Expected |
+| ---- | ----- | ------ | -------- |
+| calc until marker deleted | 6 | =B1*10 | 60 |
+
+### 13f. `{{calc}}` directly above a table (no blank line)
+
+The marker below was written with no blank line before the table. Obsidian
+won't render that as a table, so opening this note should make the plugin
+insert the blank line. After that the table evaluates normally. Typing
+`{{calc}}` directly above a table should get the same fix as you type.
+
+{{calc}}
+| Case | Value | Result | Expected |
+| ---- | ----- | ------ | -------- |
+| marker was directly above | 7 | =B1*10 | 70 |
