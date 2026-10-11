@@ -175,3 +175,251 @@ test('Live Preview: a second pass after decoration does not shift column referen
     'B1+C1 should still resolve to 15, not shift to reference the row-label/text columns',
   );
 });
+
+// ─── {{calc}} scoping: the marker applies only to the table right after it ───
+
+const { hasCalcMarker } = TableCalcPlugin;
+
+// A plugin instance with just enough of Obsidian's Plugin/App surface for
+// onload(), reprocess() and buildFingerprints() to run under plain Node.
+function makePlugin(source = '', leaves = []) {
+  const plugin = new TableCalcPlugin();
+  plugin.app = {
+    vault: { cachedRead: async () => source },
+    workspace: {
+      on: () => {},
+      iterateAllLeaves: () => {},
+      getActiveViewOfType: () => null,
+      getLeavesOfType: () => leaves,
+    },
+  };
+  plugin.loadData = async () => ({});
+  plugin.addSettingTab = () => {};
+  plugin.registerEvent = () => {};
+  plugin.addCommand = () => {};
+  plugin.registerMarkdownPostProcessor = (fn) => {
+    plugin.postProcessor = fn;
+  };
+  return plugin;
+}
+
+function tableHtml(header) {
+  return (
+    `<table><thead><tr>${header.map((h) => `<th>${h}</th>`).join('')}</tr></thead>` +
+    '<tbody><tr><td>1</td><td>=A1+1</td></tr></tbody></table>'
+  );
+}
+
+test("fingerprint fallback: a plain table sharing a calc table's header is not treated as calc", async () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const plugin = makePlugin(
+    [
+      '{{calc}}',
+      '',
+      '| Name | Score |',
+      '| --- | --- |',
+      '| a | =1+1 |',
+      '',
+      '| Name | Score |',
+      '| --- | --- |',
+      '| b | =2+2 |',
+      '',
+      '{{calc}}',
+      '',
+      '| Item | Cost |',
+      '| --- | --- |',
+      '| c | =3+3 |',
+    ].join('\n'),
+  );
+  await plugin.buildFingerprints({ path: 'scope.md' });
+
+  const { document } = dom.window;
+  document.body.innerHTML = `<div>${tableHtml(['Name', 'Score'])}</div><div>${tableHtml(['Item', 'Cost'])}</div>`;
+  const [ambiguous, unique] = document.querySelectorAll('table');
+  assert.equal(hasCalcMarker(ambiguous, 'scope.md'), false);
+  assert.equal(hasCalcMarker(unique, 'scope.md'), true);
+});
+
+test('post-processor: a {{calc}} in a section marks only the table right after it', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const plugin = makePlugin();
+  await plugin.onload();
+
+  const el = dom.window.document.createElement('div');
+  el.innerHTML = `<p>{{calc}}</p>${tableHtml(['A', 'B'])}<p>More text</p>${tableHtml(['C', 'D'])}`;
+  dom.window.document.body.appendChild(el);
+  plugin.postProcessor(el, { sourcePath: 'x.md', getSectionInfo: () => null });
+
+  const [first, second] = el.querySelectorAll('table');
+  assert.equal(first.dataset.tableCalc, 'done');
+  assert.equal(second.dataset.tableCalc, 'skip');
+});
+
+test('reprocess: {{calc}} followed by non-table content does not leak onto a later table', () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const plugin = makePlugin();
+
+  const { document } = dom.window;
+  document.body.innerHTML = `<div><p>{{calc}}</p><p>Some prose</p></div><div>${tableHtml(['A', 'B'])}</div>`;
+  plugin.reprocess(document.body, null);
+
+  assert.equal(document.querySelector('table').dataset.tableCalc, 'skip');
+});
+
+test("reprocess: {{calc}} as the last child of its block still marks the next block's table", () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const plugin = makePlugin();
+
+  const { document } = dom.window;
+  document.body.innerHTML = `<div><p>{{calc}}</p></div><div>${tableHtml(['A', 'B'])}</div>`;
+  plugin.reprocess(document.body, null);
+
+  assert.equal(document.querySelector('table').dataset.tableCalc, 'done');
+});
+
+// ─── Removing {{calc}} un-styles a table that was already evaluated ───────────
+
+const { revalidateTables } = TableCalcPlugin;
+
+// Minimal stand-in for the CM6 EditorView a Live Preview table lives in:
+// every DOM position maps to `tableLine`, and the doc is `lines`.
+function fakeEditorView(dom, lines, tableLine) {
+  return {
+    dom,
+    posAtDOM: () => 0,
+    state: {
+      doc: {
+        lineAt: () => ({ number: tableLine }),
+        line: (n) => ({ text: lines[n - 1] }),
+      },
+    },
+  };
+}
+
+test('Reading View: deleting {{calc}} restores an evaluated table to plain markdown', () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const plugin = makePlugin();
+  const { document } = dom.window;
+  document.body.innerHTML = `<div id="m"><p>{{calc}}</p></div><div>${tableHtml(['A', 'B'])}</div>`;
+  plugin.reprocess(document.body, null);
+  const table = document.querySelector('table');
+  assert.equal(table.dataset.tableCalc, 'done');
+
+  // Obsidian swaps the marker's section out but reuses the table's section.
+  document.getElementById('m').outerHTML = '<div><h2>Heading</h2></div>';
+  revalidateTables(document.body);
+
+  assert.equal(table.dataset.tableCalc, 'skip');
+  assert.equal(table.dataset.tableCalcMarked, undefined);
+  assert.equal(table.querySelector('.table-calc-col-headers'), null);
+  assert.equal(table.querySelectorAll('td')[1].textContent, '=A1+1');
+});
+
+test('Live Preview: deleting {{calc}} un-styles the table even though its widget is reused', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const { document } = dom.window;
+  const editor = document.createElement('div');
+  editor.className = 'cm-editor';
+  editor.innerHTML = tableHtml(['A', 'B']);
+  document.body.appendChild(editor);
+  const table = editor.querySelector('table');
+
+  const lines = ['{{calc}}', '', '| A | B |', '| - | - |', '| 1 | =A1+1 |'];
+  const leaf = {
+    view: { contentEl: document.body, editor: { cm: fakeEditorView(editor, lines, 3) } },
+  };
+  const plugin = makePlugin('', [leaf]);
+  await plugin.onload();
+
+  processTable(table, plugin.settings, 'x.md');
+  assert.equal(table.dataset.tableCalc, 'done');
+
+  lines[0] = 'Some prose';
+  processTable(table, plugin.settings, 'x.md');
+
+  assert.equal(table.dataset.tableCalc, 'skip');
+  assert.equal(table.querySelector('.table-calc-col-headers'), null);
+  const formulaCell = table.querySelectorAll('td')[1];
+  assert.equal(formulaCell.className, '');
+  assert.equal(formulaCell.title, '');
+});
+
+test('onunload: fully restores evaluated tables so a reload re-detects markers', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  global.document = dom.window.document;
+  try {
+    const plugin = makePlugin();
+    await plugin.onload();
+    document.body.innerHTML = `<div><p>{{calc}}</p></div><div>${tableHtml(['A', 'B'])}</div>`;
+    plugin.reprocess(document.body, null);
+    const table = document.querySelector('table');
+    assert.equal(table.dataset.tableCalc, 'done');
+
+    plugin.onunload();
+
+    assert.equal(table.dataset.tableCalc, undefined);
+    assert.equal(table.dataset.tableCalcMarked, undefined);
+    assert.equal(table.querySelector('.table-calc-col-headers'), null);
+    assert.equal(table.querySelectorAll('td')[1].textContent, '=A1+1');
+    assert.equal(document.querySelector('p').style.display, '');
+  } finally {
+    delete global.document;
+  }
+});
+
+// ─── {{calc}} directly above a table gets the blank line Obsidian needs ──────
+
+const { insertBlankAfterCalcMarkers } = TableCalcPlugin;
+
+test('blank line is inserted between {{calc}} and a table directly under it', () => {
+  assert.equal(
+    insertBlankAfterCalcMarkers('{{calc}}\n| A | B |\n| - | - |\n| 1 | =A1 |'),
+    '{{calc}}\n\n| A | B |\n| - | - |\n| 1 | =A1 |',
+  );
+});
+
+test('already-separated markers and markers not followed by a table are left alone', () => {
+  const src = '{{calc}}\n\n| A |\n| - |\n\n{{calc}}\nSome prose\n\n{{calc}}';
+  assert.equal(insertBlankAfterCalcMarkers(src), src);
+});
+
+test('inside a callout the inserted blank line stays quoted', () => {
+  assert.equal(
+    insertBlankAfterCalcMarkers('> [!note]\n> {{calc}}\n> | A |\n> | - |'),
+    '> [!note]\n> {{calc}}\n>\n> | A |\n> | - |',
+  );
+});
+
+test('{{calc}} inside a fenced code block is not touched', () => {
+  const src = '```markdown\n{{calc}}\n| A |\n| - |\n```\n';
+  assert.equal(insertBlankAfterCalcMarkers(src), src);
+});
+
+test('editor fix inserts the blank line as a single transaction at the marker line end', () => {
+  const plugin = makePlugin();
+  let value = 'Intro\n{{calc}}\n| A |\n| - |\n\n  {{calc}}\n| B |\n| - |';
+  const calls = [];
+  const editor = {
+    getValue: () => value,
+    transaction: (tx) => {
+      calls.push(tx);
+      value = insertBlankAfterCalcMarkers(value);
+    },
+  };
+  plugin.fixAdjacentCalcMarkers(editor);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].changes, [
+    { from: { line: 1, ch: 8 }, text: '\n' },
+    { from: { line: 5, ch: 10 }, text: '\n' },
+  ]);
+
+  plugin.fixAdjacentCalcMarkers(editor);
+  assert.equal(calls.length, 1, 'a second pass is a no-op');
+});

@@ -170,6 +170,39 @@ function stripInlineMd(s) {
 // {{calc}} in that file's source. Used as a fallback in Live Preview mode
 // when DOM traversal cannot find the {{calc}} marker (e.g. CM6 keeps
 // collapsed/hidden source lines between the marker and the rendered widget).
+// ─── Blank line between {{calc}} and its table ───────────────────────────────
+
+// Obsidian won't render a table that directly follows a line of text: a
+// {{calc}} line with a table row right under it renders as one plain
+// paragraph, so there's no table for the plugin to evaluate. Finds every
+// such marker (including inside callouts, skipping fenced code blocks) and
+// returns where a blank line must be inserted, as { line, text }: insert
+// `text` at the end of 0-based `line`.
+const QUOTE_PREFIX = /^\s*(?:>\s*)*/;
+
+function findAdjacentCalcMarkers(lines) {
+  const fixes = [];
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    const prefix = lines[i].match(QUOTE_PREFIX)[0];
+    const body = lines[i].slice(prefix.length).trim();
+    if (body.startsWith('```') || body.startsWith('~~~')) inFence = !inFence;
+    if (inFence || body !== '{{calc}}' || i + 1 >= lines.length) continue;
+    const next = lines[i + 1];
+    if (next.slice(next.match(QUOTE_PREFIX)[0].length).trim().startsWith('|')) {
+      // Keep callout lines quoted: the blank line inside "> " blocks is ">".
+      fixes.push({ line: i, text: `\n${prefix.trimEnd()}` });
+    }
+  }
+  return fixes;
+}
+
+function insertBlankAfterCalcMarkers(source) {
+  const lines = source.split('\n');
+  for (const { line, text } of findAdjacentCalcMarkers(lines)) lines[line] += text;
+  return lines.join('\n');
+}
+
 const calcTableFingerprints = new Map(); // filePath → Set<string>
 
 // Returns a fingerprint string for the table's first visible content row,
@@ -192,7 +225,10 @@ function tableFingerprint(tableEl) {
 // CM6 may keep "collapsed" source lines (hidden via display:none or folded)
 // between {{calc}} and the rendered table widget; those lines start with "|"
 // so we skip them to reach the {{calc}} paragraph.
-function findPrecedingCalcMarker(tableEl) {
+// Returns { marker } when {{calc}} is found, { other: true } when some other
+// content sits directly before the table (so it is definitely NOT a calc
+// table), or {} when nothing conclusive was found within the search depth.
+function precedingMarker(tableEl) {
   const hasCalcText = el =>
     el && el.textContent && el.textContent.trim() === '{{calc}}';
 
@@ -206,19 +242,101 @@ function findPrecedingCalcMarker(tableEl) {
     let prev = node.previousElementSibling;
     while (prev && skippable(prev)) prev = prev.previousElementSibling;
     if (prev) {
-      if (hasCalcText(prev)) return prev;
-      const innerP = prev.querySelector && prev.querySelector('p');
-      if (innerP && hasCalcText(innerP)) return innerP;
+      if (hasCalcText(prev)) return { marker: prev };
+      // Descend through the block's trailing content only: the marker must
+      // be the last thing before the table, not just anywhere inside the
+      // preceding block (e.g. a callout with prose after its {{calc}}).
+      let inner = prev.lastElementChild;
+      while (inner) {
+        while (inner && skippable(inner)) inner = inner.previousElementSibling;
+        if (!inner) break;
+        if (hasCalcText(inner)) return { marker: inner };
+        inner = inner.lastElementChild;
+      }
       // Non-marker, non-skippable content found — stop at this level.
-      break;
+      return { other: true };
     }
     node = node.parentElement;
     if (!node) break;
   }
-  return null;
+  return {};
+}
+
+function findPrecedingCalcMarker(tableEl) {
+  return precedingMarker(tableEl).marker || null;
+}
+
+// ─── Source-based marker detection (Live Preview) ────────────────────────────
+
+// Set by the plugin on load: maps a table element to the CM6 EditorView of
+// the Live Preview editor that contains it (null when there isn't one).
+let resolveEditorView = () => null;
+
+// Reads the note source around a Live Preview table to decide whether
+// {{calc}} sits directly above it. Returns true/false, or null when the
+// table can't be located in the source (e.g. it's inside a callout widget).
+// Unlike DOM traversal or header fingerprints this is exact, so it also
+// catches a {{calc}} line being deleted after the table was evaluated.
+function calcMarkerFromSource(tableEl) {
+  if (!tableEl.closest('.cm-editor')) return null;
+  try {
+    const cm = resolveEditorView(tableEl);
+    if (!cm || !cm.dom.contains(tableEl)) return null;
+    const doc = cm.state.doc;
+    const isRow = n => doc.line(n).text.trim().startsWith('|');
+    let n = doc.lineAt(cm.posAtDOM(tableEl)).number;
+    if (!isRow(n)) return null;
+    while (n > 1 && isRow(n - 1)) n--;
+    for (let i = n - 1; i >= 1; i--) {
+      const line = doc.line(i).text.trim();
+      if (line === '{{calc}}') return true;
+      if (line !== '') return false;
+    }
+    return false;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Reverses everything processTable/decorateTable did to a table, so a table
+// whose {{calc}} marker was removed goes back to plain markdown rendering.
+function undoTable(tableEl) {
+  tableEl.querySelector('.table-calc-col-headers')?.remove();
+  tableEl.querySelectorAll('.table-calc-corner, .table-calc-row-label').forEach(el => el.remove());
+  tableEl.querySelectorAll('td[data-formula]').forEach(td => {
+    if (!td.closest('.cm-editor')) td.textContent = td.dataset.formula;
+    td.removeAttribute('data-formula');
+    td.removeAttribute('title');
+    td.classList.remove('table-calc-cell', 'table-calc-error-cell', 'table-calc-lp-formula', 'table-calc-lp-error');
+  });
+  delete tableEl.dataset.tableCalc;
+  delete tableEl.dataset.tableCalcMarked;
+}
+
+// Re-checks every evaluated table under contentEl and undoes the ones that
+// are no longer preceded by {{calc}}. Only acts on a conclusive answer, so a
+// table whose marker simply can't be seen right now is left alone.
+function revalidateTables(contentEl) {
+  contentEl.querySelectorAll('table[data-table-calc="done"]').forEach(tableEl => {
+    const stillCalc = tableEl.closest('.cm-editor')
+      ? calcMarkerFromSource(tableEl) !== false
+      : !precedingMarker(tableEl).other;
+    if (!stillCalc) {
+      undoTable(tableEl);
+      tableEl.dataset.tableCalc = 'skip';
+    }
+  });
 }
 
 function hasCalcMarker(tableEl, filePath) {
+  // In Live Preview the source is authoritative when it can be read.
+  const fromSource = calcMarkerFromSource(tableEl);
+  if (fromSource !== null) {
+    if (fromSource) tableEl.dataset.tableCalcMarked = 'true';
+    else delete tableEl.dataset.tableCalcMarked;
+    return fromSource;
+  }
+
   if (tableEl.dataset.tableCalcMarked === 'true') return true;
 
   // Fast path: DOM traversal (works in Reading mode and many LP cases).
@@ -297,6 +415,7 @@ function processTable(tableEl, settings, filePath) {
   }
 
   if (!hasCalcMarker(tableEl, filePath)) {
+    if (tableEl.dataset.tableCalc === 'done') undoTable(tableEl);
     tableEl.dataset.tableCalc = 'skip';
     return;
   }
@@ -368,6 +487,13 @@ class TableCalcPlugin extends Plugin {
     await this.loadSettings();
     this.addSettingTab(new TableCalcSettingTab(this.app, this));
 
+    resolveEditorView = el => {
+      for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+        if (leaf.view.contentEl?.contains(el)) return leaf.view.editor?.cm ?? null;
+      }
+      return null;
+    };
+
     // Primary path: post-processor per section.
     // ctx.getSectionInfo reads the source to detect {{calc}} on preceding lines.
     this.registerMarkdownPostProcessor((el, ctx) => {
@@ -381,16 +507,17 @@ class TableCalcPlugin extends Plugin {
       const markerInEl = Array.from(el.querySelectorAll('p'))
         .some(p => p.textContent.trim() === '{{calc}}');
 
-      if (markerInEl) {
-        tables.forEach(t => { t.dataset.tableCalcMarked = 'true'; });
-      } else {
+      // When the marker is inside this section, leave detection to the
+      // per-table DOM walk in hasCalcMarker so only the table immediately
+      // after {{calc}} is marked — not every table in the section.
+      if (!markerInEl) {
         const info = ctx.getSectionInfo(el);
         if (info && info.lineStart > 0) {
           const lines = info.text.split('\n');
           for (let i = info.lineStart - 1; i >= Math.max(0, info.lineStart - 4); i--) {
             const line = lines[i].trim();
             if (line === '{{calc}}') {
-              tables.forEach(t => { t.dataset.tableCalcMarked = 'true'; });
+              tables[0].dataset.tableCalcMarked = 'true';
               break;
             }
             if (line !== '') break;
@@ -415,8 +542,15 @@ class TableCalcPlugin extends Plugin {
 
     // Build fingerprint cache for the currently open file on startup.
     this.registerEvent(
-      this.app.workspace.on('file-open', file => {
-        if (file) this.buildFingerprints(file);
+      this.app.workspace.on('file-open', async file => {
+        if (!file) return;
+        if (file.extension === 'md') {
+          const source = await this.app.vault.read(file);
+          if (findAdjacentCalcMarkers(source.split('\n')).length > 0) {
+            await this.app.vault.process(file, insertBlankAfterCalcMarkers);
+          }
+        }
+        this.buildFingerprints(file);
       })
     );
 
@@ -434,6 +568,7 @@ class TableCalcPlugin extends Plugin {
         if (!file) return;
         clearTimeout(this._fingerprintTimer);
         this._fingerprintTimer = setTimeout(() => {
+          this.fixAdjacentCalcMarkers(editor);
           this.buildFingerprints(file, editor.getValue());
         }, 200);
       })
@@ -469,6 +604,20 @@ class TableCalcPlugin extends Plugin {
     });
   }
 
+  // Inserts the blank line Obsidian needs between {{calc}} and a table typed
+  // directly under it, as one undoable edit.
+  fixAdjacentCalcMarkers(editor) {
+    const lines = editor.getValue().split('\n');
+    const fixes = findAdjacentCalcMarkers(lines);
+    if (fixes.length === 0) return;
+    editor.transaction({
+      changes: fixes.map(({ line, text }) => ({
+        from: { line, ch: lines[line].length },
+        text,
+      })),
+    });
+  }
+
   reprocess(contentEl, filePath) {
     contentEl.querySelectorAll('p').forEach(p => {
       if (p.textContent.trim() !== '{{calc}}') return;
@@ -479,7 +628,10 @@ class TableCalcPlugin extends Plugin {
       if (next) {
         table = next.tagName === 'TABLE' ? next : next.querySelector && next.querySelector('table');
       }
-      if (!table && p.parentElement) {
+      // Only look past the parent when the marker is its last child;
+      // otherwise whatever follows the marker isn't a table and {{calc}}
+      // must not leak onto a later, unrelated table.
+      if (!next && p.parentElement) {
         const parentNext = p.parentElement.nextElementSibling;
         if (parentNext) {
           table = parentNext.tagName === 'TABLE' ? parentNext : parentNext.querySelector && parentNext.querySelector('table');
@@ -518,19 +670,25 @@ class TableCalcPlugin extends Plugin {
           if (tbl) tables.add(tbl);
         }
       }
-      if (tables.size === 0) return;
+      // A removed node may have been a {{calc}} marker, which can turn an
+      // evaluated table back into a plain one — re-check those too.
+      const removed = mutations.some(m => m.removedNodes.length > 0);
+      if (tables.size === 0 && !removed) return;
       // Use leaf.view.file so background-pane mutations resolve the correct
       // file rather than whatever pane happens to be focused at fire time.
       const filePath = leaf.view.file?.path;
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => tables.forEach(t => {
-        // In Live Preview, keep 'done' so processTable's LP branch falls
-        // through cheaply. In Reading View, clear it so a characterData
-        // mutation on a data cell triggers full formula re-evaluation.
-        const isLP = !!t.closest('.cm-editor');
-        if (!isLP || t.dataset.tableCalc !== 'done') delete t.dataset.tableCalc;
-        processTable(t, this.settings, filePath);
-      }), 150);
+      debounceTimer = setTimeout(() => {
+        tables.forEach(t => {
+          // In Live Preview, keep 'done' so processTable's LP branch falls
+          // through cheaply. In Reading View, clear it so a characterData
+          // mutation on a data cell triggers full formula re-evaluation.
+          const isLP = !!t.closest('.cm-editor');
+          if (!isLP || t.dataset.tableCalc !== 'done') delete t.dataset.tableCalc;
+          processTable(t, this.settings, filePath);
+        });
+        revalidateTables(el);
+      }, 150);
     });
 
     observer.observe(el, { childList: true, subtree: true, characterData: true });
@@ -550,25 +708,39 @@ class TableCalcPlugin extends Plugin {
     try {
       const source = sourceOverride ?? await this.app.vault.cachedRead(file);
       const lines = source.split('\n');
-      const fps = new Set();
+      // Fingerprint every table's first row, split by whether {{calc}}
+      // precedes it. A fingerprint shared with an unmarked table is
+      // ambiguous, so it's dropped — otherwise {{calc}} would leak onto
+      // any plain table that happens to have the same header.
+      const calcFps = new Set();
+      const plainFps = new Set();
       let seenCalc = false;
+      let inTable = false;
 
       for (const line of lines) {
         const trimmed = line.trim();
+        if (trimmed.startsWith('|')) {
+          if (!inTable) {
+            // Skip separator-only rows (| --- | :---: | etc.)
+            const cells = trimmed.split('|').map(c => c.trim()).filter(Boolean);
+            if (cells.every(c => /^[-:]+$/.test(c))) continue;
+            // First data/header row — build its fingerprint.
+            // Strip inline Markdown so source "**Name**" matches DOM "Name".
+            (seenCalc ? calcFps : plainFps).add(cells.map(stripInlineMd).join('\x00'));
+            inTable = true;
+          }
+          seenCalc = false;
+          continue;
+        }
+        inTable = false;
         if (trimmed === '{{calc}}') {
           seenCalc = true;
-        } else if (seenCalc && trimmed.startsWith('|')) {
-          // Skip separator-only rows (| --- | :---: | etc.)
-          const cells = trimmed.split('|').map(c => c.trim()).filter(Boolean);
-          if (cells.every(c => /^[-:]+$/.test(c))) continue;
-          // First data/header row — build its fingerprint.
-          // Strip inline Markdown so source "**Name**" matches DOM "Name".
-          fps.add(cells.map(stripInlineMd).join('\x00'));
-          seenCalc = false;
         } else if (trimmed !== '') {
           seenCalc = false;
         }
       }
+
+      const fps = new Set([...calcFps].filter(fp => !plainFps.has(fp)));
 
       calcTableFingerprints.set(file.path, fps);
 
@@ -579,6 +751,8 @@ class TableCalcPlugin extends Plugin {
           delete t.dataset.tableCalc;
           processTable(t, this.settings, file.path);
         });
+        // ...and undo any evaluated table whose {{calc}} was since removed.
+        revalidateTables(view.contentEl);
       }
     } catch (_) { /* ignore */ }
   }
@@ -594,8 +768,13 @@ class TableCalcPlugin extends Plugin {
   onunload() {
     this.observers.forEach(o => o.disconnect());
     this.observers = [];
-    document.querySelectorAll('[data-table-calc]').forEach(el => {
-      delete el.dataset.tableCalc;
+    resolveEditorView = () => null;
+    // Fully restore rendered tables and markers; leaving the marked flag
+    // behind made tables stay calc tables after a plugin reload even when
+    // their {{calc}} had been removed.
+    document.querySelectorAll('table[data-table-calc]').forEach(undoTable);
+    document.querySelectorAll('p').forEach(p => {
+      if (p.textContent.trim() === '{{calc}}') p.style.display = '';
     });
   }
 }
@@ -606,3 +785,5 @@ module.exports = TableCalcPlugin;
 module.exports.processTable = processTable;
 module.exports.decorateTable = decorateTable;
 module.exports.hasCalcMarker = hasCalcMarker;
+module.exports.revalidateTables = revalidateTables;
+module.exports.insertBlankAfterCalcMarkers = insertBlankAfterCalcMarkers;
