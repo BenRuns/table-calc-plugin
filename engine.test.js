@@ -609,3 +609,72 @@ test('formatResult: error strings pass through', () => {
   assert.equal(formatResult('#ERR'), '#ERR');
   assert.equal(formatResult('#NAME?'), '#NAME?');
 });
+
+// ─── Durations (issue #7) ─────────────────────────────────────────────────────
+
+const show = (formula, grid) => formatResult(evalFormula(formula, grid));
+
+test('durations: SUM of m:ss song lengths (issue #7)', () => {
+  const g = [
+    ['America', 'Simon & Garfunkel', 'Standard', '03:36'],
+    ['Homeward Bound', 'Simon & Garfunkel', 'Standard', '02:29'],
+    ['=COUNTA(A1:A2)', '', '', '=SUM(D1:D2)'],
+  ];
+  assert.equal(show('=SUM(D1:D2)', g), '06:05');
+  assert.equal(show('=COUNTA(A1:A2)', g), '2');
+  // A formula referencing a duration-valued formula cell stays a duration.
+  assert.equal(show('=D3', g), '06:05');
+});
+
+test('durations: two-part totals keep an unbounded first field', () => {
+  const g = [['45:00'], ['30:30']];
+  assert.equal(show('=SUM(A1:A2)', g), '75:30');
+});
+
+test('durations: h:mm:ss, and mixing with m:ss', () => {
+  assert.equal(show('=SUM(A1:A2)', [['23:30:00'], ['1:00:00']]), '24:30:00'); // no 24h wrap
+  assert.equal(show('=SUM(A1:A2)', [['1:02:45'], ['03:36']]), '01:06:21'); // m:ss + h:mm:ss
+});
+
+test('durations: functions that keep the unit return durations', () => {
+  const g = [['03:36'], ['02:29'], ['04:00']];
+  assert.equal(show('=AVERAGE(A1:A3)', g), '03:22');
+  assert.equal(show('=MIN(A1:A3)', g), '02:29');
+  assert.equal(show('=MAX(A1:A3)', g), '04:00');
+  assert.equal(show('=MEDIAN(A1:A3)', g), '03:36');
+});
+
+test('durations: counting functions return plain numbers', () => {
+  const g = [['03:36'], ['02:29'], ['n/a']];
+  assert.equal(evalFormula('=COUNT(A1:A3)', g), 2);
+  assert.equal(evalFormula('=COUNTA(A1:A3)', g), 3);
+});
+
+test('durations: arithmetic, negatives, and inline literals', () => {
+  const g = [['03:36'], ['02:29']];
+  assert.equal(show('=A1+A2', g), '06:05');
+  assert.equal(show('=A1-A2', g), '01:07');
+  assert.equal(show('=A2-A1', g), '-01:07');
+  assert.equal(show('=A1*2', g), '07:12');
+  assert.equal(show('=A1+1:30', g), '05:06');
+  assert.equal(show('=SUM(1:30, 2:00)', []), '3:30');
+  assert.equal(show('=A1', [['-1:30']]), '-1:30');
+});
+
+test('durations: fractional seconds', () => {
+  assert.equal(show('=SUM(A1:A2)', [['3:05.5'], ['1:00.25']]), '4:05.75');
+  // Rounding carries into the next field instead of showing `:60`.
+  assert.equal(show('=A1', [['0:59.9996']]), '1:00.000');
+});
+
+test('durations: malformed values are still text', () => {
+  for (const bad of ['3:5', '3:60', '1:2:3', '12:', ':30', '1:30 pm']) {
+    assert.equal(evalFormula('=A1', [[bad]]), '#ERR', bad);
+    assert.equal(show('=SUM(A1:A2)', [[bad], ['1:00']]), '1:00', bad);
+  }
+});
+
+test('durations: plain-number formulas are unaffected', () => {
+  assert.equal(evalFormula('=SUM(A1:A2)', [['1'], ['2']]), 3);
+  assert.equal(formatResult(evalFormula('=1+2', [])), '3');
+});

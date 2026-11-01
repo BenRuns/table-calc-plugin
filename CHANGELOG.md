@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Time values like `03:36` (m:ss) and `1:02:45` (h:mm:ss) are now recognized as durations instead of text, so `=SUM(D1:D2)` over song lengths returns `06:05` instead of `0` ([#7](https://github.com/BenRuns/table-calc-plugin/issues/7)). Results that come from durations are shown as durations, totals never wrap at 60 minutes or 24 hours, and `COUNT` now counts duration cells.
+
 ## 2.2.0
 
 ### Added

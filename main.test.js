@@ -423,3 +423,31 @@ test('editor fix inserts the blank line as a single transaction at the marker li
   plugin.fixAdjacentCalcMarkers(editor);
   assert.equal(calls.length, 1, 'a second pass is a no-op');
 });
+
+test('Reading View: a SUM of m:ss durations renders as a duration (issue #7)', () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const { document } = dom.window;
+  const container = document.createElement('div');
+  container.className = 'markdown-reading-view';
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>Title</th><th>Time</th></tr></thead>
+      <tbody>
+        <tr><td>America</td><td>03:36</td></tr>
+        <tr><td>Homeward Bound</td><td>02:29</td></tr>
+        <tr><td>=COUNTA(A1:A2)</td><td>=SUM(B1:B2)</td></tr>
+      </tbody>
+    </table>
+  `;
+  document.body.appendChild(container);
+  const tableEl = container.querySelector('table');
+  tableEl.dataset.tableCalcMarked = 'true';
+  const [countCell, sumCell] = tableEl.querySelectorAll('tr')[3].querySelectorAll('td');
+
+  processTable(tableEl, { copyFormat: 'csv', copyContent: 'values' }, 'test.md');
+
+  assert.equal(countCell.textContent.trim(), '2');
+  assert.equal(sumCell.textContent.trim(), '06:05');
+  assert.ok(sumCell.classList.contains('table-calc-cell'));
+});

@@ -94,6 +94,23 @@ Combine functions and arithmetic freely:
 
 > **Note:** Function arguments must be cell references, ranges, or literal numbers — not inline expressions. Use `=ABS(A1)` not `=ABS(A1-B1)`.
 
+### Durations
+
+Cells written as `m:ss` (`03:36`) or `h:mm:ss` (`1:02:45`) are durations, and the result of a formula that uses them is shown in the same format:
+
+| Title | Time |
+|-------|------|
+| America | 03:36 |
+| Homeward Bound | 02:29 |
+| Total | `=SUM(B1:B2)` → `06:05` |
+
+- `SUM`, `AVERAGE`, `MEDIAN`, `MIN`, `MAX`, `ABS`, `ROUND`, `FLOOR`, `INT`, `CEILING`, `TRUNC`, `STDEV`, and `+ - * /` with a duration return a duration. `COUNT`/`COUNTA` (and functions that change the unit, like `PRODUCT` or `VAR`) return plain numbers.
+- Totals never wrap: `45:00 + 30:30` is `75:30`, and `23:30:00 + 1:00:00` is `24:30:00`.
+- If any input is `h:mm:ss`, the result is `h:mm:ss`. Two-part values are read as `m:ss` when mixed with `h:mm:ss` (`1:02:45 + 03:36` → `01:06:21`).
+- Fractional seconds work (`3:05.5`), up to 3 decimals; other results round to the nearest second.
+- Duration literals can be typed inline: `=B1+1:30`.
+- Plain numbers combined with a duration count as **seconds**: `=B1+30` adds 30 seconds.
+
 ---
 
 ## Error Values
@@ -194,6 +211,9 @@ This means your notes remain portable: open them anywhere and you'll see the raw
 - Errors are contagious, like in a real spreadsheet: if a formula references another cell (directly, in a range, or as a function argument) whose own formula resolved to an error, the referencing formula also returns `#ERR` — it's never silently swallowed into `0` partway down a chain of formulas.
 - Numbers are standard JavaScript doubles (IEEE 754), the same numeric type spreadsheets like Excel use. Integers beyond `2^53` (~9 quadrillion) lose precision, and results are snapped to 8 decimal places to absorb ordinary binary floating-point drift (e.g. `0.1+0.2` reliably shows `0.3`, not `0.30000000000000004`)
 - `ROUND` rounds half away from zero (`ROUND(2.5,0)` → `3`, `ROUND(-2.5,0)` → `-3`), matching spreadsheet conventions rather than JavaScript's native `Math.round` (which rounds `-2.5` to `-2`)
+- A formula is shown as a duration whenever a duration feeds into it, even when the arithmetic changes the unit: `=SUM(B1:B2)/60` displays as a duration (seconds ÷ 60), and `=B1/B2` (a ratio of two durations) does too. There's no number-format control yet to override this.
+- `03:36` is read as 3 minutes 36 seconds, not 3 hours 36 minutes as Excel would read it. A column of two-part values sums to the same digits either way, so `h:mm` timesheets still total correctly (`8:30 + 7:45` → `16:15`), but mixing them with `h:mm:ss` values treats them as `m:ss`.
+- Clock times with `am`/`pm` (`1:30 pm`), and malformed durations like `3:5` or `3:60`, are text.
 - References are positional, not tracked. `A2` always means "column A, row 2 of the table as it exists right now" — there's no concept of a formula "belonging" to a row. If you insert, delete, or reorder rows, formula text doesn't shift to compensate, so a formula can silently start pointing at the wrong cells. Re-check (or rewrite) formulas after restructuring a table. This is intentional: the plugin never rewrites your formulas, and auto-shifting references would require doing exactly that
 
 ---

@@ -292,3 +292,24 @@ insert the blank line. After that the table evaluates normally. Typing
 | Case | Value | Result | Expected |
 | ---- | ----- | ------ | -------- |
 | marker was directly above | 7 | =B1*10 | 70 |
+
+---
+
+## 14. Durations (`m:ss` and `h:mm:ss`)
+
+Each `Result` should match `Expected`. Rows 1–2 are the song table from
+issue #7.
+
+{{calc}}
+
+| Case | Time | Result | Expected |
+| ---- | ---- | ------ | -------- |
+| song 1 | 03:36 | =B1 | 03:36 |
+| song 2 | 02:29 | =SUM(B1:B2) | 06:05 |
+| total over an hour stays m:ss | 58:00 | =SUM(B1:B3) | 64:05 |
+| h:mm:ss mixed with m:ss | 1:00:00 | =SUM(B1:B4) | 02:04:05 |
+| average | | =AVERAGE(B1:B2) | 03:03 |
+| difference (negative) | | =B2-B1 | -01:07 |
+| inline literal | | =B1+1:30 | 05:06 |
+| COUNT is still a number | | =COUNT(B1:B4) | 4 |
+| malformed (stays text) | 3:5 | =B9 | #ERR |

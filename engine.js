@@ -31,6 +31,107 @@ function parseCellNumber(str) {
   return CELL_NUMBER_RE.test(str) ? parseFloat(str.replace(/,/g, '')) : NaN;
 }
 
+// ─── Durations ────────────────────────────────────────────────────────────────
+//
+// Cells like `03:36` or `1:02:45` are durations. Internally a duration is a
+// plain number of seconds, so every function and operator works on it
+// unchanged; a separate format (`fmt`) travels alongside so the result can be
+// displayed the same way the inputs were written.
+//
+//   two parts   m:ss    (`03:36` = 3 min 36 s; the first field is unbounded,
+//                        so `75:00` is 75 minutes)
+//   three parts h:mm:ss (`1:02:45`; hours unbounded, so totals past 24h
+//                        never wrap the way a time-of-day would)
+//   either may carry fractional seconds: `3:05.5`, `0:01:02.25`
+//
+// Two-part values are ambiguous in general (Excel reads `03:36` as h:mm).
+// Treating them as m:ss is only observable when they're mixed with
+// three-part values or used in arithmetic with plain numbers: a column of
+// two-part values sums to the same digits under either reading (`03:36` +
+// `02:29` = `06:05`), because the output keeps the two-part form and leaves
+// its first field unbounded.
+const DURATION_RE = /^([+-]?)(\d+):([0-5]\d)(?::([0-5]\d))?(?:\.(\d+))?$/;
+// Same shape, for duration literals typed inline in an arithmetic formula
+// (`=A1+1:30`). The lookarounds keep it from matching inside a cell
+// reference (`B1:30` has no word boundary before the 1) or a decimal.
+const INLINE_DURATION_RE = /(?<![\w.:])\d+:[0-5]\d(?::[0-5]\d)?(?:\.\d+)?(?![\w.:])/g;
+const MAX_DURATION_DECIMALS = 3;
+
+class Duration {
+  constructor(seconds, fmt) {
+    this.seconds = seconds;
+    this.fmt = fmt;
+  }
+}
+
+function parseDuration(str) {
+  const m = DURATION_RE.exec(str);
+  if (!m) return null;
+  const [, sign, a, b, c, frac] = m;
+  let seconds =
+    c === undefined ? Number(a) * 60 + Number(b) : Number(a) * 3600 + Number(b) * 60 + Number(c);
+  if (frac) seconds += Number(`0.${frac}`);
+  return {
+    seconds: sign === '-' ? -seconds : seconds,
+    fmt: {
+      parts: c === undefined ? 2 : 3,
+      pad: a.length >= 2,
+      decimals: Math.min(frac ? frac.length : 0, MAX_DURATION_DECIMALS),
+    },
+  };
+}
+
+// Combines the formats of every duration feeding a result: three parts win
+// over two (so mixed m:ss/h:mm:ss input shows h:mm:ss), and the result keeps
+// the most precise fractional seconds of any input.
+function mergeDurationFmt(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    parts: Math.max(a.parts, b.parts),
+    pad: a.pad || b.pad,
+    decimals: Math.max(a.decimals, b.decimals),
+  };
+}
+
+function formatDuration(seconds, fmt) {
+  const scale = 10 ** fmt.decimals;
+  // Round once, in integer units, so 59.9996s can't display as `0:60`.
+  const units = Math.round(Math.abs(seconds) * scale);
+  const whole = Math.floor(units / scale);
+  const pad2 = (n) => String(n).padStart(2, '0');
+  let out = pad2(whole % 60);
+  if (fmt.decimals) out += `.${String(units % scale).padStart(fmt.decimals, '0')}`;
+  let lead;
+  if (fmt.parts === 3) {
+    out = `${pad2(Math.floor((whole % 3600) / 60))}:${out}`;
+    lead = Math.floor(whole / 3600);
+  } else {
+    lead = Math.floor(whole / 60);
+  }
+  out = `${fmt.pad ? pad2(lead) : lead}:${out}`;
+  return seconds < 0 && units !== 0 ? `-${out}` : out;
+}
+
+// Functions whose result is in the same unit as their input, so a duration
+// in gives a duration out (SUM of song lengths is a length). Functions that
+// count, or that change the unit (PRODUCT, VAR, SQRT, ...), return plain
+// numbers even when given durations.
+const DURATION_FNS = new Set([
+  'SUM',
+  'AVERAGE',
+  'MEDIAN',
+  'MIN',
+  'MAX',
+  'ABS',
+  'ROUND',
+  'FLOOR',
+  'INT',
+  'CEILING',
+  'TRUNC',
+  'STDEV',
+]);
+
 // Functions that take a specific single/positional argument (as opposed to
 // aggregating a whole range) treat a text argument the same way a bare
 // `=A1` reference does: the whole formula errors, matching Excel/Sheets'
@@ -69,7 +170,9 @@ const SINGLE_VALUE_FNS = new Set([
 function classifyLiteral(raw) {
   if (raw === '') return { kind: 'blank', num: 0 };
   const n = parseCellNumber(raw);
-  return Number.isNaN(n) ? { kind: 'text', num: 0 } : { kind: 'number', num: n };
+  if (!Number.isNaN(n)) return { kind: 'number', num: n };
+  const d = parseDuration(raw);
+  return d ? { kind: 'number', num: d.seconds, dur: d.fmt } : { kind: 'text', num: 0 };
 }
 
 function classifyCell(grid, r, c, depth) {
@@ -77,6 +180,7 @@ function classifyCell(grid, r, c, depth) {
   const raw = getRawCell(grid, r, c);
   if (raw.startsWith('=')) {
     const result = evalFormula(raw, grid, depth - 1);
+    if (result instanceof Duration) return { kind: 'number', num: result.seconds, dur: result.fmt };
     return typeof result === 'number' ? { kind: 'number', num: result } : { kind: 'error', num: 0 };
   }
   return classifyLiteral(raw);
@@ -152,6 +256,11 @@ function evalFormula(formula, grid, depth) {
     // [^()]* ensures we only match calls with no nested parens in their args,
     // so nested calls like ROUND(AVERAGE(A1:A3), 2) resolve AVERAGE first, then ROUND.
     let earlyError = null;
+    // Set when any duration feeds the result: a duration-preserving
+    // function given a duration argument, a direct reference to a duration
+    // cell, or an inline duration literal. The final result is then shown
+    // as a duration in this (merged) format.
+    let durFmt = null;
     let prevExpr;
     let passes = 0;
     do {
@@ -302,10 +411,19 @@ function evalFormula(formula, grid, depth) {
           earlyError = '#ERR';
           return 0;
         }
+        if (DURATION_FNS.has(fnName)) {
+          for (const p of pairs) durFmt = mergeDurationFmt(durFmt, p.dur);
+        }
         return result;
       });
     } while (!earlyError && expr !== prevExpr && ++passes < 100);
     if (earlyError) return earlyError;
+
+    expr = expr.replace(INLINE_DURATION_RE, (lit) => {
+      const d = parseDuration(lit);
+      durFmt = mergeDurationFmt(durFmt, d.fmt);
+      return d.seconds;
+    });
 
     // A bare reference (=A1, =A1+5, ...) to a cell containing actual text,
     // or to a formula cell that itself resolved to an error, invalidates
@@ -321,6 +439,7 @@ function evalFormula(formula, grid, depth) {
         directRefError = true;
         return 0;
       }
+      durFmt = mergeDurationFmt(durFmt, cell.dur);
       return cell.num;
     });
     if (directRefError) return '#ERR';
@@ -341,17 +460,19 @@ function evalFormula(formula, grid, depth) {
     // `|| 0` normalizes -0 to 0 (-0 + 0 === 0): -0 is a legitimate result of
     // e.g. `=0*-1`, but is a footgun for callers comparing with strict
     // equality (Object.is(-0, 0) is false) and serves no display purpose.
-    return Number.isInteger(result) ? result || 0 : parseFloat(result.toFixed(8)) || 0;
+    const num = Number.isInteger(result) ? result || 0 : parseFloat(result.toFixed(8)) || 0;
+    return durFmt ? new Duration(num, durFmt) : num;
   } catch (_e) {
     return '#ERR';
   }
 }
 
 function formatResult(val) {
+  if (val instanceof Duration) return formatDuration(val.seconds, val.fmt);
   if (typeof val === 'number') {
     return Number.isInteger(val) ? String(val) : parseFloat(val.toFixed(6)).toString();
   }
   return String(val);
 }
 
-module.exports = { parseRef, evalFormula, formatResult };
+module.exports = { parseRef, evalFormula, formatResult, Duration };
