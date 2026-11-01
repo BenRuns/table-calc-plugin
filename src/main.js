@@ -22,6 +22,13 @@ class TableCalcSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
+      .setName('Not for critical calculations')
+      .setDesc(
+        'Table Calc is a hobby project. Anyone is welcome to use it, but it ' +
+        'comes with no warranty. Verify any number that matters independently.'
+      );
+
+    new Setting(containerEl)
       .setName('Copy format')
       .setDesc('File format used by the Copy button on calc tables.')
       .addDropdown(drop => drop

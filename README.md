@@ -2,6 +2,9 @@
 
 Add spreadsheet-style formulas to your markdown tables. Write `=SUM(A1:A5)`, `=B1*C1`, or `=AVERAGE(A1:A3)` directly in any table cell and see the results rendered inline — in both Live Preview and Reading view.
 
+> [!WARNING]
+> **This is a hobby project, not intended for critical calculations.** Anyone is welcome to use it, but it comes with no warranty or guaranteed support, so please don't rely on it where a wrong result could cause harm or loss, such as medical, legal, financial, tax, engineering, or safety work. See the [Disclaimer](#disclaimer).
+
 ---
 
 ## Quick Start
@@ -266,7 +269,11 @@ This means your notes remain portable: open them anywhere and you'll see the raw
 
 ## Disclaimer
 
-Table Calc is designed for **personal notes, budgets, and quick calculations** — the kind of arithmetic you'd otherwise reach for a spreadsheet for. It is not intended for safety-critical, financial-regulatory, or any other high-stakes computation. Results are rendered in-browser using JavaScript's standard IEEE 754 floating-point arithmetic and are subject to the same rounding characteristics as any spreadsheet. Always verify critical numbers independently.
+**Table Calc is a hobby project.** Anyone is welcome to use it, for free, under the [MIT License](LICENSE). It's provided "as is", with no warranty and no guarantee of support or fixes.
+
+**It is not intended for critical calculations.** It's designed for **personal notes, budgets, and quick calculations**. Please don't rely on it for medical, legal, financial, tax, regulatory, engineering, or safety-critical work, or for anything else where a wrong result could cause harm or loss.
+
+Results are computed in the browser using JavaScript's standard IEEE 754 floating-point arithmetic, which has the same rounding characteristics as any spreadsheet. Some values also depend on how they're read: `03:36` can mean minutes or hours, depending on the **Two-part times** setting. If a number matters, verify it independently.
 
 ---
 

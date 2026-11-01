@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- The README and settings tab now state clearly that Table Calc is a hobby project and is not intended for critical calculations.
+
 ### Added
 
 - Clock times with am/pm (`9:00 am`, `5:15 PM`). End minus start gives a duration (`8:15:00`), adding a duration gives a clock time that wraps at midnight, and `MIN`/`MAX`/`MEDIAN`/`AVERAGE` of clock times return clock times.
