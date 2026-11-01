@@ -55,9 +55,11 @@ function parseCellNumber(str) {
 // numbers, which is what the option is for.
 const DURATION_RE = /^([+-]?)(\d+):([0-5]\d)(?::([0-5]\d))?(?:\.(\d+))?$/;
 // Same shape, for duration literals typed inline in an arithmetic formula
-// (`=A1+1:30`). The lookarounds keep it from matching inside a cell
-// reference (`B1:30` has no word boundary before the 1) or a decimal.
-const INLINE_DURATION_RE = /(?<![\w.:])\d+:[0-5]\d(?::[0-5]\d)?(?:\.\d+)?(?![\w.:])/g;
+// (`=A1+1:30`). The boundary checks keep it from matching inside a cell
+// reference (`B1:30`) or a decimal. The leading one is a captured group, not
+// a lookbehind: the plugin also runs on mobile, and on iOS below 16.4 a
+// lookbehind is a syntax error that stops the whole plugin from loading.
+const INLINE_DURATION_RE = /(^|[^\w.:])(\d+:[0-5]\d(?::[0-5]\d)?(?:\.\d+)?)(?![\w.:])/g;
 // 12-hour clock times only: a 24-hour `14:30` is indistinguishable from a
 // duration, so without am/pm it's read as one.
 const CLOCK_RE = /^(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(\s*)([ap])\.?m\.?$/i;
@@ -639,13 +641,13 @@ function evaluate(formula, grid, depth, opts) {
     if (earlyError) return earlyError;
 
     let badLiteral = false;
-    expr = expr.replace(INLINE_DURATION_RE, (lit) => {
+    expr = expr.replace(INLINE_DURATION_RE, (_, before, lit) => {
       const d = parseDuration(lit, opts);
       if (!d) {
         badLiteral = true; // e.g. `1:30.5` under the h:mm reading
         return 0;
       }
-      return mark({ kind: 'number', num: d.seconds, type: 'D', fmt: d.fmt });
+      return before + mark({ kind: 'number', num: d.seconds, type: 'D', fmt: d.fmt });
     });
     if (badLiteral) return '#ERR';
 

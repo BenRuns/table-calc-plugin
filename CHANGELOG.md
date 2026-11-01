@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 2.3.0
 
 ### Changed
 
 - The README and settings tab now state clearly that Table Calc is a hobby project and is not intended for critical calculations.
+- Cells like `03:36`, `1:02:45`, and `1:30 pm` used to count as text and now count as times, so existing formulas over them can give different results: `SUM` includes them instead of skipping them, `COUNT` counts them, and `=A1` shows the time instead of `#ERR`.
 
 ### Added
 
