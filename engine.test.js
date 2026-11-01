@@ -609,3 +609,213 @@ test('formatResult: error strings pass through', () => {
   assert.equal(formatResult('#ERR'), '#ERR');
   assert.equal(formatResult('#NAME?'), '#NAME?');
 });
+
+// ─── Durations (issue #7) ─────────────────────────────────────────────────────
+
+const show = (formula, grid) => formatResult(evalFormula(formula, grid));
+
+test('durations: SUM of m:ss song lengths (issue #7)', () => {
+  const g = [
+    ['America', 'Simon & Garfunkel', 'Standard', '03:36'],
+    ['Homeward Bound', 'Simon & Garfunkel', 'Standard', '02:29'],
+    ['=COUNTA(A1:A2)', '', '', '=SUM(D1:D2)'],
+  ];
+  assert.equal(show('=SUM(D1:D2)', g), '06:05');
+  assert.equal(show('=COUNTA(A1:A2)', g), '2');
+  // A formula referencing a duration-valued formula cell stays a duration.
+  assert.equal(show('=D3', g), '06:05');
+});
+
+test('durations: two-part totals keep an unbounded first field', () => {
+  const g = [['45:00'], ['30:30']];
+  assert.equal(show('=SUM(A1:A2)', g), '75:30');
+});
+
+test('durations: h:mm:ss, and mixing with m:ss', () => {
+  assert.equal(show('=SUM(A1:A2)', [['23:30:00'], ['1:00:00']]), '24:30:00'); // no 24h wrap
+  assert.equal(show('=SUM(A1:A2)', [['1:02:45'], ['03:36']]), '01:06:21'); // m:ss + h:mm:ss
+});
+
+test('durations: functions that keep the unit return durations', () => {
+  const g = [['03:36'], ['02:29'], ['04:00']];
+  assert.equal(show('=AVERAGE(A1:A3)', g), '03:22');
+  assert.equal(show('=MIN(A1:A3)', g), '02:29');
+  assert.equal(show('=MAX(A1:A3)', g), '04:00');
+  assert.equal(show('=MEDIAN(A1:A3)', g), '03:36');
+});
+
+test('durations: counting functions return plain numbers', () => {
+  const g = [['03:36'], ['02:29'], ['n/a']];
+  assert.equal(evalFormula('=COUNT(A1:A3)', g), 2);
+  assert.equal(evalFormula('=COUNTA(A1:A3)', g), 3);
+});
+
+test('durations: arithmetic, negatives, and inline literals', () => {
+  const g = [['03:36'], ['02:29']];
+  assert.equal(show('=A1+A2', g), '06:05');
+  assert.equal(show('=A1-A2', g), '01:07');
+  assert.equal(show('=A2-A1', g), '-01:07');
+  assert.equal(show('=A1*2', g), '07:12');
+  assert.equal(show('=A1+1:30', g), '05:06');
+  assert.equal(show('=SUM(1:30, 2:00)', []), '3:30');
+  assert.equal(show('=A1', [['-1:30']]), '-1:30');
+});
+
+test('durations: fractional seconds', () => {
+  assert.equal(show('=SUM(A1:A2)', [['3:05.5'], ['1:00.25']]), '4:05.75');
+  // Rounding carries into the next field instead of showing `:60`.
+  assert.equal(show('=A1', [['0:59.9996']]), '1:00.000');
+});
+
+test('durations: malformed values are still text', () => {
+  for (const bad of ['3:5', '3:60', '1:2:3', '12:', ':30', '1:30 xm']) {
+    assert.equal(evalFormula('=A1', [[bad]]), '#ERR', bad);
+    assert.equal(show('=SUM(A1:A2)', [[bad], ['1:00']]), '1:00', bad);
+  }
+});
+
+test('durations: plain-number formulas are unaffected', () => {
+  assert.equal(evalFormula('=SUM(A1:A2)', [['1'], ['2']]), 3);
+  assert.equal(formatResult(evalFormula('=1+2', [])), '3');
+});
+
+test('durations: h:mm:ss edge cases', () => {
+  assert.equal(show('=SUM(A1:A2)', [['1:02:45'], ['0:58:20']]), '2:01:05');
+  assert.equal(show('=SUM(A1:A2)', [['23:59:59'], ['0:00:01']]), '24:00:00');
+  assert.equal(show('=SUM(A1:A2)', [['100:00:00'], ['1:00:00']]), '101:00:00');
+  assert.equal(show('=A1*2', [['12:00:00']]), '24:00:00');
+  assert.equal(show('=A1-A2', [['1:00:00'], ['1:30:00']]), '-0:30:00');
+  assert.equal(show('=A1', [['-1:30:00']]), '-1:30:00');
+  assert.equal(show('=A1+0:30:00', [['1:00:00']]), '1:30:00');
+  assert.equal(show('=SUM(A1:A2)', [['1:00:00.5'], ['0:00:00.25']]), '1:00:00.75');
+  assert.equal(show('=AVERAGE(A1:A3)', [['1:00:00'], ['2:00:00'], ['2:00:01']]), '1:40:00');
+});
+
+test('durations: blanks, text, and surrounding whitespace', () => {
+  assert.equal(show('=SUM(A1:A2)', [['1:00:00'], ['']]), '1:00:00');
+  assert.equal(show('=SUM(A1:A2)', [['1:00:00'], ['n/a']]), '1:00:00');
+  assert.equal(show('=A1+A2', [['1:00:00'], ['']]), '1:00:00');
+  assert.equal(show('=A1', [[' 1:00:00 ']]), '1:00:00');
+});
+
+test('durations: malformed three-part values are text', () => {
+  for (const bad of ['1:2:45', '1:60:00', '1:00:60', '1:00:00:00', '１:00']) {
+    assert.equal(evalFormula('=A1', [[bad]]), '#ERR', bad);
+  }
+});
+
+test('durations: two-part values mixed with h:mm:ss are read as m:ss', () => {
+  // Documented ambiguity: `0:30` is 30 seconds here, not 30 minutes.
+  assert.equal(show('=SUM(A1:A2)', [['0:30'], ['0:30:00']]), '0:30:30');
+});
+
+// ─── Result-type inference ────────────────────────────────────────────────────
+
+test('durations: dividing by a duration gives a plain number', () => {
+  const g = [['03:36'], ['02:29']];
+  // Total minutes / ratio: duration ÷ duration is unitless.
+  assert.equal(evalFormula('=SUM(A1:A2)/0:01:00', g), 6.08333333);
+  assert.equal(evalFormula('=A1/A2', g), 1.44966443);
+  // Duration ÷ number is still a duration (Excel/Sheets agree).
+  assert.equal(show('=SUM(A1:A2)/60', g), '00:06');
+  assert.equal(show('=SUM(A1:A2)/2', g), '03:03');
+});
+
+test('durations: unit-changing arithmetic gives plain numbers', () => {
+  const g = [['0:10'], ['0:20']];
+  assert.equal(evalFormula('=A1*A2', g), 200);
+  assert.equal(evalFormula('=A1^2', g), 100);
+  assert.equal(evalFormula('=COUNT(A1:A2)', g), 2);
+  assert.equal(show('=-A1', g), '-0:10');
+  assert.equal(show('=(A1+A2)*3', g), '1:30');
+  assert.equal(show('=ROUND(SUM(A1:A2),0)', g), '0:30');
+});
+
+test('negative cell values can be subtracted and raised to powers', () => {
+  // Previously substituted as `10--5`, a syntax error.
+  assert.equal(evalFormula('=A1-B1', [['10', '-5']]), 15);
+  assert.equal(evalFormula('=A1^2', [['-3']]), 9);
+  assert.equal(evalFormula('=10-SUM(A1:A2)', [['-2'], ['-3']]), 15);
+  assert.equal(show('=A1-A2', [['1:00'], ['-0:30']]), '1:30');
+});
+
+// ─── Clock times ──────────────────────────────────────────────────────────────
+
+test('clock times: end minus start is a duration', () => {
+  assert.equal(show('=B1-A1', [['9:00 am', '5:15 pm']]), '8:15:00');
+  assert.equal(show('=B1-A1', [['8:30 AM', '12:00 PM']]), '3:30:00');
+  // Overnight: add a day.
+  assert.equal(show('=B1-A1+24:00:00', [['10:00 pm', '6:00 am']]), '08:00:00');
+});
+
+test('clock times: adding a duration gives a clock time that wraps at midnight', () => {
+  assert.equal(show('=A1+3:00:00', [['10:00 PM']]), '1:00 AM');
+  assert.equal(show('=A1+B1', [['9:00 am', '0:45:00']]), '9:45 am');
+  assert.equal(show('=A1-0:30:00', [['12:15 am']]), '11:45 pm');
+});
+
+test('clock times: MIN/MAX/MEDIAN/AVERAGE return clock times', () => {
+  const g = [['9:00 am'], ['5:15 pm'], ['12:30 pm']];
+  assert.equal(show('=MIN(A1:A3)', g), '9:00 am');
+  assert.equal(show('=MAX(A1:A3)', g), '5:15 pm');
+  assert.equal(show('=MEDIAN(A1:A3)', g), '12:30 pm');
+  assert.equal(show('=AVERAGE(A1:A2)', g), '1:07 pm');
+});
+
+test('clock times: parsing and display', () => {
+  assert.equal(show('=A1', [['12:00 am']]), '12:00 am');
+  assert.equal(show('=A1', [['12:00 pm']]), '12:00 pm');
+  assert.equal(show('=A1', [['1:30:15pm']]), '1:30:15pm');
+  assert.equal(show('=A1', [['7:05 a.m.']]), '7:05 am');
+  for (const bad of ['13:00 pm', '0:30 am', '1:5 pm', '1:30 xm']) {
+    assert.equal(evalFormula('=A1', [[bad]]), '#ERR', bad);
+  }
+});
+
+// ─── twoPartTime option ───────────────────────────────────────────────────────
+
+test("twoPartTime 'hm': two-part values are h:mm", () => {
+  const hm = { twoPartTime: 'hm' };
+  assert.equal(formatResult(evalFormula('=SUM(A1:A2)', [['8:30'], ['7:45']], hm)), '16:15');
+  // Mixed with h:mm:ss: 0:30 is now 30 minutes, not 30 seconds.
+  assert.equal(formatResult(evalFormula('=SUM(A1:A2)', [['0:30'], ['0:30:00']], hm)), '1:00:00');
+  // h:mm results round to the minute.
+  assert.equal(formatResult(evalFormula('=AVERAGE(A1:A2)', [['8:30'], ['7:45']], hm)), '8:08');
+  assert.equal(evalFormula('=A1/1:00', [['7:30']], hm), 7.5); // hours as a number
+  // Fractional seconds have no h:mm meaning.
+  assert.equal(evalFormula('=A1', [['3:05.5']], hm), '#ERR');
+  assert.equal(evalFormula('=1:05.5', [], hm), '#ERR');
+  // Three-part values are unaffected.
+  assert.equal(formatResult(evalFormula('=A1', [['1:02:45']], hm)), '1:02:45');
+});
+
+test("twoPartTime defaults to 'ms'", () => {
+  assert.equal(formatResult(evalFormula('=SUM(A1:A2)', [['0:30'], ['0:30:00']])), '0:30:30');
+  assert.equal(formatResult(evalFormula('=SUM(A1:A2)', [['0:30'], ['0:30:00']], {})), '0:30:30');
+});
+
+// ─── TIME ─────────────────────────────────────────────────────────────────────
+
+test('TIME: builds an h:mm:ss duration', () => {
+  assert.equal(show('=TIME(1,30,0)', []), '1:30:00');
+  assert.equal(show('=TIME(0,0,90)', []), '0:01:30'); // carries like Excel
+  assert.equal(show('=TIME(25,0,0)', []), '25:00:00'); // no 24h wrap (Excel: 1:00 AM)
+  assert.equal(show('=TIME(1.9,0,0)', []), '1:00:00'); // args truncated
+  assert.equal(show('=TIME(A1,B1,C1)', [['2', '15', '0']]), '2:15:00');
+});
+
+test('TIME: combines with durations and clock times', () => {
+  const g = [['03:36'], ['02:29'], ['9:00 am']];
+  assert.equal(evalFormula('=SUM(A1:A2)/TIME(0,1,0)', g), 6.08333333); // total minutes
+  assert.equal(show('=A1+TIME(0,1,30)', g), '00:05:06'); // m:ss + h:mm:ss → h:mm:ss
+  assert.equal(show('=A3+TIME(0,45,0)', g), '9:45 am');
+  assert.equal(show('=ROUND(TIME(1,0,0), 0)', g), '1:00:00');
+});
+
+test('TIME: errors', () => {
+  assert.equal(evalFormula('=TIME(1,0)', []), '#ERR'); // needs all three
+  assert.equal(evalFormula('=TIME(1,0,0,0)', []), '#ERR');
+  assert.equal(evalFormula('=TIME(0,-5,0)', []), '#ERR'); // negative total
+  assert.equal(evalFormula('=TIME(A1,0,0)', [['abc']]), '#ERR'); // text
+  assert.equal(evalFormula('=TIME(A1,0,0)', [['']]), '#ERR'); // blank
+});

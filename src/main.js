@@ -8,6 +8,7 @@ const { evalFormula, formatResult } = require('../engine');
 const DEFAULT_SETTINGS = {
   copyFormat:  'csv',    // 'csv' | 'tsv'
   copyContent: 'values', // 'values' | 'formulas'
+  twoPartTime: 'ms',     // 'ms' (03:36 = 3 min 36 s) | 'hm' (03:36 = 3 h 36 min)
 };
 
 class TableCalcSettingTab extends PluginSettingTab {
@@ -19,6 +20,13 @@ class TableCalcSettingTab extends PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
+
+    new Setting(containerEl)
+      .setName('Not for critical calculations')
+      .setDesc(
+        'Table Calc is a hobby project. Anyone is welcome to use it, but it ' +
+        'comes with no warranty. Verify any number that matters independently.'
+      );
 
     new Setting(containerEl)
       .setName('Copy format')
@@ -47,6 +55,24 @@ class TableCalcSettingTab extends PluginSettingTab {
         .onChange(async v => {
           this.plugin.settings.copyContent = v;
           await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName('Two-part times')
+      .setDesc(
+        'How a value like 03:36 is read. Only matters when it is mixed with ' +
+        'h:mm:ss values or plain numbers, or divided by a duration; a column ' +
+        'of two-part values totals the same either way.'
+      )
+      .addDropdown(drop => drop
+        .addOption('ms', 'Minutes:seconds (song lengths, lap times)')
+        .addOption('hm', 'Hours:minutes (timesheets)')
+        .setValue(this.plugin.settings.twoPartTime)
+        .onChange(async v => {
+          this.plugin.settings.twoPartTime = v;
+          await this.plugin.saveSettings();
+          this.plugin.recalculateAll();
         })
       );
   }
@@ -439,7 +465,7 @@ function processTable(tableEl, settings, filePath) {
     dataCells(row).forEach((td) => {
       const text = td.textContent.trim();
       if (!text.startsWith('=')) return;
-      const result = evalFormula(text, grid);
+      const result = evalFormula(text, grid, { twoPartTime: settings.twoPartTime });
       const isErr = typeof result === 'string' && result.startsWith('#');
       const display = formatResult(result);
       td.setAttribute('data-formula', text);
@@ -766,6 +792,22 @@ class TableCalcPlugin extends Plugin {
         revalidateTables(view.contentEl);
       }
     } catch (_) { /* ignore */ }
+  }
+
+  // Re-evaluates every calc table in open notes, for a setting that changes
+  // results. undoTable() restores each table to its raw formulas (and
+  // clears the marked flag, which is put back since the marker hasn't
+  // moved) so processTable() can run from scratch.
+  recalculateAll() {
+    for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+      const contentEl = leaf.view?.contentEl;
+      if (!contentEl) continue;
+      contentEl.querySelectorAll('table[data-table-calc="done"]').forEach(t => {
+        undoTable(t);
+        t.dataset.tableCalcMarked = 'true';
+        processTable(t, this.settings, leaf.view.file?.path);
+      });
+    }
   }
 
   async loadSettings() {

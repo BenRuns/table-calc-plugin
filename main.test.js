@@ -423,3 +423,82 @@ test('editor fix inserts the blank line as a single transaction at the marker li
   plugin.fixAdjacentCalcMarkers(editor);
   assert.equal(calls.length, 1, 'a second pass is a no-op');
 });
+
+test('Reading View: a SUM of m:ss durations renders as a duration (issue #7)', () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const { document } = dom.window;
+  const container = document.createElement('div');
+  container.className = 'markdown-reading-view';
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>Title</th><th>Time</th></tr></thead>
+      <tbody>
+        <tr><td>America</td><td>03:36</td></tr>
+        <tr><td>Homeward Bound</td><td>02:29</td></tr>
+        <tr><td>=COUNTA(A1:A2)</td><td>=SUM(B1:B2)</td></tr>
+      </tbody>
+    </table>
+  `;
+  document.body.appendChild(container);
+  const tableEl = container.querySelector('table');
+  tableEl.dataset.tableCalcMarked = 'true';
+  const [countCell, sumCell] = tableEl.querySelectorAll('tr')[3].querySelectorAll('td');
+
+  processTable(tableEl, { copyFormat: 'csv', copyContent: 'values' }, 'test.md');
+
+  assert.equal(countCell.textContent.trim(), '2');
+  assert.equal(sumCell.textContent.trim(), '06:05');
+  assert.ok(sumCell.classList.contains('table-calc-cell'));
+});
+
+function makeTimeTable(dom, rows) {
+  const { document } = dom.window;
+  const container = document.createElement('div');
+  container.className = 'markdown-reading-view';
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>A</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><td>${r}</td></tr>`).join('')}</tbody>
+    </table>
+  `;
+  document.body.appendChild(container);
+  const tableEl = container.querySelector('table');
+  tableEl.dataset.tableCalcMarked = 'true';
+  return { container, tableEl };
+}
+
+test('Reading View: the twoPartTime setting is passed to the engine', () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const { tableEl } = makeTimeTable(dom, ['0:30', '0:30:00', '=SUM(A1:A2)']);
+  const sumCell = tableEl.querySelectorAll('tr')[3].querySelector('td');
+
+  processTable(tableEl, { copyFormat: 'csv', copyContent: 'values', twoPartTime: 'hm' }, 'test.md');
+
+  assert.equal(sumCell.textContent.trim(), '1:00:00');
+});
+
+test('recalculateAll re-evaluates already-rendered tables with new settings', () => {
+  const dom = new JSDOM('<!doctype html><body></body>');
+  shimObsidianDomHelpers(dom);
+  const { container, tableEl } = makeTimeTable(dom, ['0:30', '0:30:00', '=SUM(A1:A2)']);
+  const sumCell = tableEl.querySelectorAll('tr')[3].querySelector('td');
+  const settings = { copyFormat: 'csv', copyContent: 'values', twoPartTime: 'ms' };
+
+  processTable(tableEl, settings, 'test.md');
+  assert.equal(sumCell.textContent.trim(), '0:30:30');
+
+  const fakePlugin = {
+    settings: { ...settings, twoPartTime: 'hm' },
+    app: {
+      workspace: {
+        getLeavesOfType: () => [{ view: { contentEl: container, file: { path: 'test.md' } } }],
+      },
+    },
+  };
+  TableCalcPlugin.prototype.recalculateAll.call(fakePlugin);
+
+  assert.equal(sumCell.textContent.trim(), '1:00:00');
+  assert.equal(tableEl.querySelectorAll('.table-calc-col-headers').length, 1);
+});

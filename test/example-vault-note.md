@@ -292,3 +292,53 @@ insert the blank line. After that the table evaluates normally. Typing
 | Case | Value | Result | Expected |
 | ---- | ----- | ------ | -------- |
 | marker was directly above | 7 | =B1*10 | 70 |
+
+---
+
+## 14. Durations (`m:ss` and `h:mm:ss`)
+
+Each `Result` should match `Expected`. Rows 1–2 are the song table from
+issue #7.
+
+{{calc}}
+
+| Case | Time | Result | Expected |
+| ---- | ---- | ------ | -------- |
+| song 1 | 03:36 | =B1 | 03:36 |
+| song 2 | 02:29 | =SUM(B1:B2) | 06:05 |
+| total over an hour stays m:ss | 58:00 | =SUM(B1:B3) | 64:05 |
+| h:mm:ss mixed with m:ss | 1:00:00 | =SUM(B1:B4) | 02:04:05 |
+| average | | =AVERAGE(B1:B2) | 03:03 |
+| difference (negative) | | =B2-B1 | -01:07 |
+| inline literal | | =B1+1:30 | 05:06 |
+| COUNT is still a number | | =COUNT(B1:B4) | 4 |
+| malformed (stays text) | 3:5 | =B9 | #ERR |
+
+---
+
+## 15. Units, Clock Times, and the Two-Part Times Setting
+
+Rows assume the default **Two-part times: Minutes:seconds** setting except
+where noted.
+
+{{calc}}
+
+| Case | Value | Result | Expected |
+| ---- | ----- | ------ | -------- |
+| song 1 | 03:36 | =B1 | 03:36 |
+| song 2 | 02:29 | =SUM(B1:B2)/0:01:00 | 6.083333 |
+| ratio of durations | | =B1/B2 | 1.449664 |
+| duration ÷ number stays a duration | | =SUM(B1:B2)/2 | 03:03 |
+| shift start | 9:00 am | =B5 | 9:00 am |
+| shift end | 5:15 pm | =B6-B5 | 8:15:00 |
+| clock + duration wraps | 10:00 PM | =B7+3:00:00 | 1:00 AM |
+| earliest start | | =MIN(B5:B6) | 9:00 am |
+| subtract a negative | -5 | =10-B9 | 15 |
+| total minutes via TIME | | =SUM(B1:B2)/TIME(0,1,0) | 6.083333 |
+| TIME doesn't wrap | | =TIME(25,0,0) | 25:00:00 |
+| mixed two/three-part (m:ss) | 0:30 | =B12+0:30:00 | 0:30:30 |
+
+Now switch **Settings → Table Calc → Two-part times** to *Hours:minutes*.
+Without reopening the note, three Results should change: rows 2 and 10 to
+`365` (03:36 + 02:29 is now 6 h 5 min) and the last row to `1:00:00`. Every
+other row should stay the same.

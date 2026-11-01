@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The README and settings tab now state clearly that Table Calc is a hobby project and is not intended for critical calculations.
+
+### Added
+
+- Clock times with am/pm (`9:00 am`, `5:15 PM`). End minus start gives a duration (`8:15:00`), adding a duration gives a clock time that wraps at midnight, and `MIN`/`MAX`/`MEDIAN`/`AVERAGE` of clock times return clock times.
+- Formulas keep track of units: dividing a duration by a duration gives a plain number (`=SUM(B1:B2)/0:01:00` is total minutes), and so does multiplying two durations.
+- **Two-part times** setting: read `03:36` as minutes:seconds (default) or hours:minutes.
+- `TIME(h, m, s)` builds a duration, an Excel/Sheets-compatible way to write one in a formula (`=SUM(B1:B2)/TIME(0,1,0)` is total minutes). Unlike Excel it doesn't wrap at 24 hours.
+
+### Fixed
+
+- Time values like `03:36` (m:ss) and `1:02:45` (h:mm:ss) are now recognized as durations instead of text, so `=SUM(D1:D2)` over song lengths returns `06:05` instead of `0` ([#7](https://github.com/BenRuns/table-calc-plugin/issues/7)). Results that come from durations are shown as durations, totals never wrap at 60 minutes or 24 hours, and `COUNT` now counts duration cells.
+- Subtracting a negative cell value (`=A1-B1` where B1 is `-5`) returned `#ERR`; it now returns `15`. Raising a negative cell to a power (`=A1^2` where A1 is `-3`) works too.
+
 ## 2.2.0
 
 ### Added
