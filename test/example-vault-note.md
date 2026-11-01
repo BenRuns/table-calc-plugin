@@ -334,9 +334,11 @@ where noted.
 | clock + duration wraps | 10:00 PM | =B7+3:00:00 | 1:00 AM |
 | earliest start | | =MIN(B5:B6) | 9:00 am |
 | subtract a negative | -5 | =10-B9 | 15 |
-| mixed two/three-part (m:ss) | 0:30 | =B10+0:30:00 | 0:30:30 |
+| total minutes via TIME | | =SUM(B1:B2)/TIME(0,1,0) | 6.083333 |
+| TIME doesn't wrap | | =TIME(25,0,0) | 25:00:00 |
+| mixed two/three-part (m:ss) | 0:30 | =B12+0:30:00 | 0:30:30 |
 
 Now switch **Settings → Table Calc → Two-part times** to *Hours:minutes*.
-Without reopening the note, two Results should change: row 2 to `365`
-(03:36 + 02:29 is now 6 h 5 min) and the last row to `1:00:00`. Every other
-row should stay the same.
+Without reopening the note, three Results should change: rows 2 and 10 to
+`365` (03:36 + 02:29 is now 6 h 5 min) and the last row to `1:00:00`. Every
+other row should stay the same.

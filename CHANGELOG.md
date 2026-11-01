@@ -7,6 +7,7 @@
 - Clock times with am/pm (`9:00 am`, `5:15 PM`). End minus start gives a duration (`8:15:00`), adding a duration gives a clock time that wraps at midnight, and `MIN`/`MAX`/`MEDIAN`/`AVERAGE` of clock times return clock times.
 - Formulas keep track of units: dividing a duration by a duration gives a plain number (`=SUM(B1:B2)/0:01:00` is total minutes), and so does multiplying two durations.
 - **Two-part times** setting: read `03:36` as minutes:seconds (default) or hours:minutes.
+- `TIME(h, m, s)` builds a duration, an Excel/Sheets-compatible way to write one in a formula (`=SUM(B1:B2)/TIME(0,1,0)` is total minutes). Unlike Excel it doesn't wrap at 24 hours.
 
 ### Fixed
 

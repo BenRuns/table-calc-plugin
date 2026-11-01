@@ -69,6 +69,7 @@ Obsidian only renders a table that has a blank line above it, so if you type `{{
 | `=LOG(A1)` / `=LOG(A1, base)` | Base-10 log (single-arg), or log to a given base | `=LOG(8, 2)` |
 | `=LOG10(A1)` | Base-10 logarithm | `=LOG10(100)` |
 | `=PI()` | The constant π | `=ROUND(PI(), 2)` |
+| `=TIME(h, m, s)` | A duration of h hours, m minutes, s seconds (arguments truncated to integers; doesn't wrap at 24h, unlike Excel) | `=SUM(B1:B5)/TIME(0,1,0)` |
 
 ### Arithmetic
 
@@ -108,7 +109,7 @@ Cells written as `m:ss` (`03:36`) or `h:mm:ss` (`1:02:45`) are durations, and th
 - Totals never wrap: `45:00 + 30:30` is `75:30`, and `23:30:00 + 1:00:00` is `24:30:00`.
 - If any input is `h:mm:ss`, the result is `h:mm:ss`.
 - Fractional seconds work (`3:05.5`), up to 3 decimals; other results round to the nearest second.
-- Duration literals can be typed inline: `=B1+1:30`.
+- Durations can be typed inline (`=B1+1:30`) or built with `TIME(h, m, s)` (`=B1+TIME(0,1,30)`). Prefer `TIME` if you'll copy the formulas into a spreadsheet; see below.
 - Plain numbers combined with a duration count as **seconds**: `=B1+30` adds 30 seconds.
 
 **Arithmetic keeps track of units**, so a formula gives a duration only when the result really is one:
@@ -116,8 +117,8 @@ Cells written as `m:ss` (`03:36`) or `h:mm:ss` (`1:02:45`) are durations, and th
 | Formula | Result |
 |---------|--------|
 | `=B1+B2`, `=B1-B2`, `=B1*2`, `=SUM(B1:B2)/2` | duration |
-| `=SUM(B1:B2)/0:01:00` | plain number: total **minutes** (`6.083333`) |
-| `=SUM(B1:B2)/1:00:00` | plain number: total **hours** |
+| `=SUM(B1:B2)/TIME(0,1,0)` or `/0:01:00` | plain number: total **minutes** (`6.083333`) |
+| `=SUM(B1:B2)/TIME(1,0,0)` or `/1:00:00` | plain number: total **hours** |
 | `=B1/B2` | plain number: the ratio of two durations |
 | `=B1*B2`, `=B1^2` | plain number |
 
@@ -133,6 +134,29 @@ Cells written as `m:ss` (`03:36`) or `h:mm:ss` (`1:02:45`) are durations, and th
 | `=MIN(A1:A5)` / `MAX` / `MEDIAN` / `AVERAGE` | a clock time |
 
 A 24-hour time like `14:30` has no am/pm, so it's read as a duration.
+
+#### Compared with Excel, Google Sheets, and Numbers
+
+The arithmetic matches: sums, differences, clock time + duration wrapping at midnight, and `MIN`/`MAX`/`AVERAGE` of times give the same values everywhere. Excel and Sheets store a time as a fraction of a day plus a display format, so the differences are about reading and display:
+
+| | Table Calc | Excel / Sheets |
+|---|---|---|
+| `03:36` | 3 min 36 s (or h:mm via the setting) | 3:36 AM (h:mm) |
+| Totals over 24h | Never wrap | Wrap unless formatted `[h]:mm` (Excel) or Duration (Sheets) |
+| Duration ÷ duration | Plain number | A number, usually displayed as a time |
+| Plain number + duration | Number counts as **seconds** | Number counts as **days** |
+| Negative durations | `-1:07` | `#####` in Excel |
+| `TIME(25,0,0)` | `25:00:00` | `1:00 AM` |
+
+Typed results (duration ÷ duration is a number, end − start is a duration) follow the same rules as Apple Numbers' Duration type.
+
+**Copying formulas into a spreadsheet** (Copy content → *Formulas*): a few formulas compute differently once pasted.
+
+- Inline durations (`=B1+1:30`) aren't valid spreadsheet syntax. Use `TIME(0,1,30)` instead; it means the same thing in both.
+- `=B1+30` adds 30 seconds here, but 30 days in Excel/Sheets. Write `=B1+TIME(0,0,30)`.
+- Two-part values like `03:36` are read as hours:minutes there. Totals still show the right digits if you format the result cell as `[m]:ss` (song lengths) or `[h]:mm` (timesheets).
+
+Copying *Computed values* has none of these problems.
 
 ---
 

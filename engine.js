@@ -332,6 +332,7 @@ const SINGLE_VALUE_FNS = new Set([
   'LN',
   'LOG',
   'LOG10',
+  'TIME',
 ]);
 
 // Every cell/argument value flows through one of these two classifiers, so
@@ -575,6 +576,22 @@ function evaluate(formula, grid, depth, opts) {
           case 'PI':
             result = Math.PI;
             break;
+          // TIME(h, m, s) builds a duration, the Excel/Sheets-compatible way
+          // to write one in a formula (`=SUM(B1:B2)/TIME(0,1,0)` survives
+          // being pasted into a spreadsheet; `/0:01:00` doesn't). Like
+          // Excel, each argument is truncated to an integer and a negative
+          // total is an error. Unlike Excel it doesn't wrap at 24 hours:
+          // TIME(25,0,0) is 25:00:00 here, 1:00 AM there.
+          case 'TIME': {
+            if (pairs.length !== 3 || pairs.some((p) => p.kind === 'blank')) {
+              earlyError = '#ERR';
+              return 0;
+            }
+            const [h, m, sec] = nums.map(Math.trunc);
+            result = h * 3600 + m * 60 + sec;
+            if (result < 0) result = NaN;
+            break;
+          }
           case 'MEDIAN': {
             const sorted = [...numericVals].sort((a, b) => a - b);
             if (!sorted.length) {
@@ -614,7 +631,8 @@ function evaluate(formula, grid, depth, opts) {
           earlyError = '#ERR';
           return 0;
         }
-        const { type, fmt } = fnResultType(fnName, pairs);
+        const { type, fmt } =
+          fnName === 'TIME' ? { type: 'D', fmt: CLOCK_DIFF_FMT } : fnResultType(fnName, pairs);
         return mark({ kind: 'number', num: result, type, fmt });
       });
     } while (!earlyError && expr !== prevExpr && ++passes < 100);

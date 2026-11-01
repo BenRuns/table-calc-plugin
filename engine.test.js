@@ -793,3 +793,29 @@ test("twoPartTime defaults to 'ms'", () => {
   assert.equal(formatResult(evalFormula('=SUM(A1:A2)', [['0:30'], ['0:30:00']])), '0:30:30');
   assert.equal(formatResult(evalFormula('=SUM(A1:A2)', [['0:30'], ['0:30:00']], {})), '0:30:30');
 });
+
+// ─── TIME ─────────────────────────────────────────────────────────────────────
+
+test('TIME: builds an h:mm:ss duration', () => {
+  assert.equal(show('=TIME(1,30,0)', []), '1:30:00');
+  assert.equal(show('=TIME(0,0,90)', []), '0:01:30'); // carries like Excel
+  assert.equal(show('=TIME(25,0,0)', []), '25:00:00'); // no 24h wrap (Excel: 1:00 AM)
+  assert.equal(show('=TIME(1.9,0,0)', []), '1:00:00'); // args truncated
+  assert.equal(show('=TIME(A1,B1,C1)', [['2', '15', '0']]), '2:15:00');
+});
+
+test('TIME: combines with durations and clock times', () => {
+  const g = [['03:36'], ['02:29'], ['9:00 am']];
+  assert.equal(evalFormula('=SUM(A1:A2)/TIME(0,1,0)', g), 6.08333333); // total minutes
+  assert.equal(show('=A1+TIME(0,1,30)', g), '00:05:06'); // m:ss + h:mm:ss → h:mm:ss
+  assert.equal(show('=A3+TIME(0,45,0)', g), '9:45 am');
+  assert.equal(show('=ROUND(TIME(1,0,0), 0)', g), '1:00:00');
+});
+
+test('TIME: errors', () => {
+  assert.equal(evalFormula('=TIME(1,0)', []), '#ERR'); // needs all three
+  assert.equal(evalFormula('=TIME(1,0,0,0)', []), '#ERR');
+  assert.equal(evalFormula('=TIME(0,-5,0)', []), '#ERR'); // negative total
+  assert.equal(evalFormula('=TIME(A1,0,0)', [['abc']]), '#ERR'); // text
+  assert.equal(evalFormula('=TIME(A1,0,0)', [['']]), '#ERR'); // blank
+});
