@@ -31,31 +31,38 @@ function parseCellNumber(str) {
   return CELL_NUMBER_RE.test(str) ? parseFloat(str.replace(/,/g, '')) : NaN;
 }
 
-// ─── Durations ────────────────────────────────────────────────────────────────
+// ─── Durations and clock times ────────────────────────────────────────────────
 //
-// Cells like `03:36` or `1:02:45` are durations. Internally a duration is a
-// plain number of seconds, so every function and operator works on it
-// unchanged; a separate format (`fmt`) travels alongside so the result can be
-// displayed the same way the inputs were written.
+// Cells like `03:36` or `1:02:45` are durations, and `9:00 am` / `5:15 PM`
+// are clock times. Internally both are a plain number of seconds (a clock
+// time counts from midnight), so every function and operator works on them
+// unchanged. Alongside the number travels a type ('D' duration, 'T' clock
+// time) and a display format, so the result can be shown the way the inputs
+// were written — and so a formula whose arithmetic changes the unit
+// (`=B1/B2`, a ratio of two durations) comes out as a plain number.
 //
-//   two parts   m:ss    (`03:36` = 3 min 36 s; the first field is unbounded,
-//                        so `75:00` is 75 minutes)
-//   three parts h:mm:ss (`1:02:45`; hours unbounded, so totals past 24h
-//                        never wrap the way a time-of-day would)
-//   either may carry fractional seconds: `3:05.5`, `0:01:02.25`
+// Durations:
+//   three parts  h:mm:ss  (`1:02:45`; hours unbounded, so totals past 24h
+//                          never wrap the way a time of day would)
+//   two parts    m:ss by default (`03:36` = 3 min 36 s), or h:mm when the
+//                `twoPartTime: 'hm'` option is set. The first field is
+//                unbounded either way, so `75:00` is 75 minutes (or hours).
+//   m:ss and h:mm:ss values may carry fractional seconds: `3:05.5`.
 //
-// Two-part values are ambiguous in general (Excel reads `03:36` as h:mm).
-// Treating them as m:ss is only observable when they're mixed with
-// three-part values or used in arithmetic with plain numbers: a column of
-// two-part values sums to the same digits under either reading (`03:36` +
-// `02:29` = `06:05`), because the output keeps the two-part form and leaves
-// its first field unbounded.
+// A column of two-part values sums to the same digits under either reading
+// (`03:36` + `02:29` = `06:05`), because the output keeps the two-part form.
+// The reading only matters when they're mixed with h:mm:ss values or plain
+// numbers, which is what the option is for.
 const DURATION_RE = /^([+-]?)(\d+):([0-5]\d)(?::([0-5]\d))?(?:\.(\d+))?$/;
 // Same shape, for duration literals typed inline in an arithmetic formula
 // (`=A1+1:30`). The lookarounds keep it from matching inside a cell
 // reference (`B1:30` has no word boundary before the 1) or a decimal.
 const INLINE_DURATION_RE = /(?<![\w.:])\d+:[0-5]\d(?::[0-5]\d)?(?:\.\d+)?(?![\w.:])/g;
+// 12-hour clock times only: a 24-hour `14:30` is indistinguishable from a
+// duration, so without am/pm it's read as one.
+const CLOCK_RE = /^(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(\s*)([ap])\.?m\.?$/i;
 const MAX_DURATION_DECIMALS = 3;
+const DAY = 86400;
 
 class Duration {
   constructor(seconds, fmt) {
@@ -64,20 +71,45 @@ class Duration {
   }
 }
 
-function parseDuration(str) {
+class ClockTime {
+  constructor(seconds, fmt) {
+    this.seconds = seconds;
+    this.fmt = fmt;
+  }
+}
+
+function parseDuration(str, opts) {
   const m = DURATION_RE.exec(str);
   if (!m) return null;
   const [, sign, a, b, c, frac] = m;
-  let seconds =
-    c === undefined ? Number(a) * 60 + Number(b) : Number(a) * 3600 + Number(b) * 60 + Number(c);
+  const hm = c === undefined && opts?.twoPartTime === 'hm';
+  if (hm && frac) return null; // `1:30.5` has no sensible h:mm meaning
+  let seconds;
+  if (c !== undefined) seconds = Number(a) * 3600 + Number(b) * 60 + Number(c);
+  else if (hm) seconds = Number(a) * 3600 + Number(b) * 60;
+  else seconds = Number(a) * 60 + Number(b);
   if (frac) seconds += Number(`0.${frac}`);
   return {
     seconds: sign === '-' ? -seconds : seconds,
     fmt: {
       parts: c === undefined ? 2 : 3,
+      unit: hm ? 'hm' : 'ms',
       pad: a.length >= 2,
       decimals: Math.min(frac ? frac.length : 0, MAX_DURATION_DECIMALS),
     },
+  };
+}
+
+function parseClock(str) {
+  const m = CLOCK_RE.exec(str);
+  if (!m) return null;
+  const [, h, mm, ss, space, ap] = m;
+  const hour = Number(h);
+  if (hour < 1 || hour > 12) return null;
+  const pm = ap.toLowerCase() === 'p';
+  return {
+    seconds: ((hour % 12) + (pm ? 12 : 0)) * 3600 + Number(mm) * 60 + Number(ss || 0),
+    fmt: { seconds: ss !== undefined, upper: ap === ap.toUpperCase(), space: space !== '' },
   };
 }
 
@@ -89,17 +121,35 @@ function mergeDurationFmt(a, b) {
   if (!b) return a;
   return {
     parts: Math.max(a.parts, b.parts),
+    unit: a.unit === 'hm' || b.unit === 'hm' ? 'hm' : 'ms',
     pad: a.pad || b.pad,
     decimals: Math.max(a.decimals, b.decimals),
   };
 }
 
+function mergeClockFmt(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return { ...a, seconds: a.seconds || b.seconds };
+}
+
+// A duration computed only from clock times (`5:15 pm - 9:00 am`) has no
+// duration input to copy a format from. h:mm:ss is the one form that reads
+// the same whatever the two-part setting is.
+const CLOCK_DIFF_FMT = { parts: 3, unit: 'ms', pad: false, decimals: 0 };
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
 function formatDuration(seconds, fmt) {
+  if (fmt.parts === 2 && fmt.unit === 'hm') {
+    const mins = Math.round(Math.abs(seconds) / 60);
+    const out = `${fmt.pad ? pad2(Math.floor(mins / 60)) : Math.floor(mins / 60)}:${pad2(mins % 60)}`;
+    return seconds < 0 && mins !== 0 ? `-${out}` : out;
+  }
   const scale = 10 ** fmt.decimals;
   // Round once, in integer units, so 59.9996s can't display as `0:60`.
   const units = Math.round(Math.abs(seconds) * scale);
   const whole = Math.floor(units / scale);
-  const pad2 = (n) => String(n).padStart(2, '0');
   let out = pad2(whole % 60);
   if (fmt.decimals) out += `.${String(units % scale).padStart(fmt.decimals, '0')}`;
   let lead;
@@ -111,6 +161,17 @@ function formatDuration(seconds, fmt) {
   }
   out = `${fmt.pad ? pad2(lead) : lead}:${out}`;
   return seconds < 0 && units !== 0 ? `-${out}` : out;
+}
+
+// A clock time is a time of day, so it wraps: `10:00 pm` + 3:00:00 is
+// `1:00 am`.
+function formatClock(seconds, fmt) {
+  const s = ((Math.round(seconds) % DAY) + DAY) % DAY;
+  const h24 = Math.floor(s / 3600);
+  let out = `${h24 % 12 || 12}:${pad2(Math.floor((s % 3600) / 60))}`;
+  if (fmt.seconds) out += `:${pad2(s % 60)}`;
+  const suffix = h24 < 12 ? 'am' : 'pm';
+  return `${out}${fmt.space ? ' ' : ''}${fmt.upper ? suffix.toUpperCase() : suffix}`;
 }
 
 // Functions whose result is in the same unit as their input, so a duration
@@ -131,6 +192,125 @@ const DURATION_FNS = new Set([
   'TRUNC',
   'STDEV',
 ]);
+// Of those, the ones where a set of clock times gives back a clock time
+// (the earliest/latest/middle/average start time). Any other use of a clock
+// time in a DURATION_FNS function treats it as time since midnight.
+const CLOCK_FNS = new Set(['MIN', 'MAX', 'MEDIAN', 'AVERAGE']);
+
+// The type of a function's result, given its classified arguments.
+function fnResultType(fnName, pairs) {
+  if (!DURATION_FNS.has(fnName)) return { type: null, fmt: null };
+  const typed = pairs.filter((p) => p.type);
+  if (!typed.length) return { type: null, fmt: null };
+  if (CLOCK_FNS.has(fnName) && typed.every((p) => p.type === 'T')) {
+    return { type: 'T', fmt: typed.reduce((f, p) => mergeClockFmt(f, p.fmt), null) };
+  }
+  const fmt = typed
+    .filter((p) => p.type === 'D')
+    .reduce((f, p) => mergeDurationFmt(f, p.fmt), null);
+  return { type: 'D', fmt: fmt || CLOCK_DIFF_FMT };
+}
+
+// ─── Result-type inference ────────────────────────────────────────────────────
+//
+// Works out whether an arithmetic expression produces a duration, a clock
+// time, or a plain number. It only decides the type; the value itself is
+// still computed by evaluating the expression, so numeric results are
+// unaffected by anything here. Operands are numbers ('N') or `__V<i>__`
+// markers standing for typed values.
+//
+//   D ± D, D ± N  → D         T ± D, T ± N  → T       T − T → D
+//   D × N, D ÷ N  → D         D ÷ D         → N (a ratio: `=B1/0:01:00` is minutes)
+//   anything else involving T, D×D, powers   → N
+const TYPE_TOKEN_RE = /\s*(__V\d+__|\*\*|(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?|[-+*/%()])/iy;
+
+function combineTypes(op, a, b) {
+  switch (op) {
+    case '+':
+      if (a === 'T' && b === 'T') return 'N';
+      if (a === 'T' || b === 'T') return 'T';
+      return a === 'D' || b === 'D' ? 'D' : 'N';
+    case '-':
+      if (a === 'T') return b === 'T' ? 'D' : 'T';
+      if (b === 'T') return 'N';
+      return a === 'D' || b === 'D' ? 'D' : 'N';
+    case '*':
+      return (a === 'D' && b === 'N') || (a === 'N' && b === 'D') ? 'D' : 'N';
+    case '/':
+    case '%':
+      return a === 'D' && b === 'N' ? 'D' : 'N';
+    default:
+      return 'N';
+  }
+}
+
+// Returns 'N' | 'D' | 'T', or null if the expression can't be parsed (it'll
+// fail evaluation too, so the type doesn't matter).
+function inferType(expr, typeOf) {
+  const tokens = [];
+  TYPE_TOKEN_RE.lastIndex = 0;
+  while (TYPE_TOKEN_RE.lastIndex < expr.length) {
+    if (/^\s*$/.test(expr.slice(TYPE_TOKEN_RE.lastIndex))) break;
+    const m = TYPE_TOKEN_RE.exec(expr);
+    if (!m) return null;
+    tokens.push(m[1]);
+  }
+  let i = 0;
+  const peek = () => tokens[i];
+  const fail = () => {
+    throw new Error('parse');
+  };
+  function primary() {
+    const t = tokens[i++];
+    if (t === undefined) fail();
+    if (t === '(') {
+      const ty = additive();
+      if (tokens[i++] !== ')') fail();
+      return ty;
+    }
+    if (t.startsWith('__V')) return typeOf(Number(t.slice(3, -2)));
+    if (/^[\d.]/.test(t)) return 'N';
+    return fail();
+  }
+  function power() {
+    const base = primary();
+    if (peek() === '**') {
+      i++;
+      unary();
+      return 'N';
+    }
+    return base;
+  }
+  function unary() {
+    if (peek() === '-' || peek() === '+') {
+      i++;
+      return unary();
+    }
+    return power();
+  }
+  function multiplicative() {
+    let ty = unary();
+    while (peek() === '*' || peek() === '/' || peek() === '%') {
+      const op = tokens[i++];
+      ty = combineTypes(op, ty, unary());
+    }
+    return ty;
+  }
+  function additive() {
+    let ty = multiplicative();
+    while (peek() === '+' || peek() === '-') {
+      const op = tokens[i++];
+      ty = combineTypes(op, ty, multiplicative());
+    }
+    return ty;
+  }
+  try {
+    const ty = additive();
+    return i === tokens.length ? ty : null;
+  } catch (_e) {
+    return null;
+  }
+}
 
 // Functions that take a specific single/positional argument (as opposed to
 // aggregating a whole range) treat a text argument the same way a bare
@@ -167,28 +347,39 @@ const SINGLE_VALUE_FNS = new Set([
 // A literal argument typed directly in the formula (not a cell reference)
 // can never be 'error' — it isn't evaluated as a nested formula, matching
 // the pre-existing behavior for e.g. `=SUM(5, abc)`.
-function classifyLiteral(raw) {
+//
+// A 'number' may also carry `type` ('D' duration / 'T' clock time) and
+// `fmt`; plain numbers have no type.
+function classifyLiteral(raw, opts) {
   if (raw === '') return { kind: 'blank', num: 0 };
   const n = parseCellNumber(raw);
   if (!Number.isNaN(n)) return { kind: 'number', num: n };
-  const d = parseDuration(raw);
-  return d ? { kind: 'number', num: d.seconds, dur: d.fmt } : { kind: 'text', num: 0 };
+  const d = parseDuration(raw, opts);
+  if (d) return { kind: 'number', num: d.seconds, type: 'D', fmt: d.fmt };
+  const t = parseClock(raw);
+  if (t) return { kind: 'number', num: t.seconds, type: 'T', fmt: t.fmt };
+  return { kind: 'text', num: 0 };
 }
 
-function classifyCell(grid, r, c, depth) {
+function classifyCell(grid, r, c, depth, opts) {
   if (depth <= 0) return { kind: 'blank', num: 0 };
   const raw = getRawCell(grid, r, c);
   if (raw.startsWith('=')) {
-    const result = evalFormula(raw, grid, depth - 1);
-    if (result instanceof Duration) return { kind: 'number', num: result.seconds, dur: result.fmt };
+    const result = evaluate(raw, grid, depth - 1, opts);
+    if (result instanceof Duration)
+      return { kind: 'number', num: result.seconds, type: 'D', fmt: result.fmt };
+    if (result instanceof ClockTime)
+      return { kind: 'number', num: result.seconds, type: 'T', fmt: result.fmt };
     return typeof result === 'number' ? { kind: 'number', num: result } : { kind: 'error', num: 0 };
   }
-  return classifyLiteral(raw);
+  return classifyLiteral(raw, opts);
 }
 
 // resolveArgs returns one classification per argument so callers can tell
 // blank, text, number, and error apart without re-parsing.
-function resolveArgs(argsStr, grid, depth) {
+// `values` holds the already-evaluated results of inner function calls,
+// which appear in `argsStr` as `__V<i>__` markers.
+function resolveArgs(argsStr, grid, depth, opts, values) {
   const vals = [];
   for (const part of argsStr.split(',')) {
     const t = part.trim();
@@ -199,21 +390,22 @@ function resolveArgs(argsStr, grid, depth) {
       if (from && to) {
         for (let r = Math.min(from.r, to.r); r <= Math.max(from.r, to.r); r++)
           for (let c = Math.min(from.c, to.c); c <= Math.max(from.c, to.c); c++) {
-            vals.push(classifyCell(grid, r, c, depth));
+            vals.push(classifyCell(grid, r, c, depth, opts));
           }
       }
       continue;
     }
     const ref = parseRef(t);
     if (ref) {
-      vals.push(classifyCell(grid, ref.r, ref.c, depth));
+      vals.push(classifyCell(grid, ref.r, ref.c, depth, opts));
       continue;
     }
     // Always push literal tokens, even unparseable ones — callers that care
     // about "was an argument provided" (e.g. LOG's 1-arg-vs-2-arg check)
     // need an accurate arg count; silently dropping invalid literals
     // previously made e.g. LOG(8, abc) look like a 1-arg call.
-    vals.push(classifyLiteral(t));
+    const marker = t.match(/^__V(\d+)__$/);
+    vals.push(marker ? values[Number(marker[1])] : classifyLiteral(t, opts));
   }
   return vals;
 }
@@ -246,8 +438,12 @@ function spreadsheetMod(a, b) {
   return r !== 0 && r < 0 !== b < 0 ? r + b : r;
 }
 
-function evalFormula(formula, grid, depth) {
-  if (depth === undefined) depth = 20;
+// opts.twoPartTime: 'ms' (default) reads `03:36` as m:ss, 'hm' as h:mm.
+function evalFormula(formula, grid, opts) {
+  return evaluate(formula, grid, 20, opts || {});
+}
+
+function evaluate(formula, grid, depth, opts) {
   if (!formula?.startsWith('=')) return formula;
   let expr = formula.slice(1).trim();
 
@@ -256,11 +452,18 @@ function evalFormula(formula, grid, depth) {
     // [^()]* ensures we only match calls with no nested parens in their args,
     // so nested calls like ROUND(AVERAGE(A1:A3), 2) resolve AVERAGE first, then ROUND.
     let earlyError = null;
-    // Set when any duration feeds the result: a duration-preserving
-    // function given a duration argument, a direct reference to a duration
-    // cell, or an inline duration literal. The final result is then shown
-    // as a duration in this (merged) format.
-    let durFmt = null;
+    // Every operand — an inner function's result, a cell reference, an
+    // inline duration — is stored here and stands in the expression as a
+    // `__V<i>__` marker until the end. That keeps its type (duration, clock
+    // time, plain) for result-type inference, keeps an inner result exact
+    // when it's passed on as an argument (no round trip through a string),
+    // and lets negative values be parenthesized when they're finally
+    // substituted (`10-(-5)`, not the syntax error `10--5`).
+    const values = [];
+    const mark = (v) => {
+      values.push(v);
+      return `__V${values.length - 1}__`;
+    };
     let prevExpr;
     let passes = 0;
     do {
@@ -268,7 +471,7 @@ function evalFormula(formula, grid, depth) {
       expr = expr.replace(/([A-Z][A-Z0-9]*)\(([^()]*)\)/gi, (_, fn, args) => {
         if (earlyError) return 0;
         const fnName = fn.toUpperCase();
-        const pairs = resolveArgs(args, grid, depth);
+        const pairs = resolveArgs(args, grid, depth, opts, values);
         // An 'error' argument (a nested formula that itself errored) always
         // invalidates the whole call — errors are contagious in spreadsheets,
         // unlike blank/text which individual functions may skip below.
@@ -411,19 +614,22 @@ function evalFormula(formula, grid, depth) {
           earlyError = '#ERR';
           return 0;
         }
-        if (DURATION_FNS.has(fnName)) {
-          for (const p of pairs) durFmt = mergeDurationFmt(durFmt, p.dur);
-        }
-        return result;
+        const { type, fmt } = fnResultType(fnName, pairs);
+        return mark({ kind: 'number', num: result, type, fmt });
       });
     } while (!earlyError && expr !== prevExpr && ++passes < 100);
     if (earlyError) return earlyError;
 
+    let badLiteral = false;
     expr = expr.replace(INLINE_DURATION_RE, (lit) => {
-      const d = parseDuration(lit);
-      durFmt = mergeDurationFmt(durFmt, d.fmt);
-      return d.seconds;
+      const d = parseDuration(lit, opts);
+      if (!d) {
+        badLiteral = true; // e.g. `1:30.5` under the h:mm reading
+        return 0;
+      }
+      return mark({ kind: 'number', num: d.seconds, type: 'D', fmt: d.fmt });
     });
+    if (badLiteral) return '#ERR';
 
     // A bare reference (=A1, =A1+5, ...) to a cell containing actual text,
     // or to a formula cell that itself resolved to an error, invalidates
@@ -434,19 +640,26 @@ function evalFormula(formula, grid, depth) {
       if (directRefError) return 0;
       const pos = parseRef(ref);
       if (!pos) return 0;
-      const cell = classifyCell(grid, pos.r, pos.c, depth);
+      const cell = classifyCell(grid, pos.r, pos.c, depth, opts);
       if (cell.kind === 'text' || cell.kind === 'error') {
         directRefError = true;
         return 0;
       }
-      durFmt = mergeDurationFmt(durFmt, cell.dur);
-      return cell.num;
+      return mark(cell);
     });
     if (directRefError) return '#ERR';
 
     // '^' isn't a JS operator (it's bitwise XOR), so translate the spreadsheet
     // exponent syntax to '**' before validating/evaluating the expression.
     expr = expr.replace(/\^/g, '**');
+
+    const type = inferType(expr, (i) => values[i].type || 'N');
+    const used = new Set();
+    expr = expr.replace(/__V(\d+)__/g, (_, i) => {
+      used.add(Number(i));
+      const n = values[i].num;
+      return n < 0 ? `(${n})` : String(n);
+    });
 
     // 'e'/'E' is allowed so scientific-notation values round-trip cleanly:
     // a function/cell result like 1e-7 or 3e+21 is embedded into `expr` via
@@ -461,7 +674,20 @@ function evalFormula(formula, grid, depth) {
     // e.g. `=0*-1`, but is a footgun for callers comparing with strict
     // equality (Object.is(-0, 0) is false) and serves no display purpose.
     const num = Number.isInteger(result) ? result || 0 : parseFloat(result.toFixed(8)) || 0;
-    return durFmt ? new Duration(num, durFmt) : num;
+    const usedVals = [...used].map((i) => values[i]);
+    if (type === 'D') {
+      const fmt = usedVals
+        .filter((v) => v.type === 'D')
+        .reduce((f, v) => mergeDurationFmt(f, v.fmt), null);
+      return new Duration(num, fmt || CLOCK_DIFF_FMT);
+    }
+    if (type === 'T') {
+      const fmt = usedVals
+        .filter((v) => v.type === 'T')
+        .reduce((f, v) => mergeClockFmt(f, v.fmt), null);
+      return new ClockTime(num, fmt);
+    }
+    return num;
   } catch (_e) {
     return '#ERR';
   }
@@ -469,10 +695,11 @@ function evalFormula(formula, grid, depth) {
 
 function formatResult(val) {
   if (val instanceof Duration) return formatDuration(val.seconds, val.fmt);
+  if (val instanceof ClockTime) return formatClock(val.seconds, val.fmt);
   if (typeof val === 'number') {
     return Number.isInteger(val) ? String(val) : parseFloat(val.toFixed(6)).toString();
   }
   return String(val);
 }
 
-module.exports = { parseRef, evalFormula, formatResult, Duration };
+module.exports = { parseRef, evalFormula, formatResult, Duration, ClockTime };
