@@ -819,3 +819,27 @@ test('TIME: errors', () => {
   assert.equal(evalFormula('=TIME(A1,0,0)', [['abc']]), '#ERR'); // text
   assert.equal(evalFormula('=TIME(A1,0,0)', [['']]), '#ERR'); // blank
 });
+
+// ─── Inline duration boundaries ───────────────────────────────────────────────
+
+test('inline durations: boundaries', () => {
+  const g = [['1:00']];
+  assert.equal(show('=1:30+1:30', g), '3:00'); // adjacent literals
+  assert.equal(show('=(1:30)*2', g), '3:00'); // after a paren
+  assert.equal(show('= 1:30', g), '1:30');
+  assert.equal(show('=A1+1:30', g), '2:30');
+  assert.equal(evalFormula('=1.5:30', g), '#ERR'); // not after a decimal point
+  assert.equal(evalFormula('=A1:30', g), '#ERR'); // not inside a reference
+});
+
+test('source has no regex lookbehind (a load-time syntax error on iOS below 16.4)', () => {
+  const fs = require('node:fs');
+  for (const file of ['engine.js', 'src/main.js']) {
+    const code = fs
+      .readFileSync(`${__dirname}/${file}`, 'utf8')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    assert.equal(/\(\?<[!=]/.test(code), false, file);
+  }
+});
