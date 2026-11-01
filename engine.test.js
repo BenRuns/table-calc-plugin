@@ -678,3 +678,33 @@ test('durations: plain-number formulas are unaffected', () => {
   assert.equal(evalFormula('=SUM(A1:A2)', [['1'], ['2']]), 3);
   assert.equal(formatResult(evalFormula('=1+2', [])), '3');
 });
+
+test('durations: h:mm:ss edge cases', () => {
+  assert.equal(show('=SUM(A1:A2)', [['1:02:45'], ['0:58:20']]), '2:01:05');
+  assert.equal(show('=SUM(A1:A2)', [['23:59:59'], ['0:00:01']]), '24:00:00');
+  assert.equal(show('=SUM(A1:A2)', [['100:00:00'], ['1:00:00']]), '101:00:00');
+  assert.equal(show('=A1*2', [['12:00:00']]), '24:00:00');
+  assert.equal(show('=A1-A2', [['1:00:00'], ['1:30:00']]), '-0:30:00');
+  assert.equal(show('=A1', [['-1:30:00']]), '-1:30:00');
+  assert.equal(show('=A1+0:30:00', [['1:00:00']]), '1:30:00');
+  assert.equal(show('=SUM(A1:A2)', [['1:00:00.5'], ['0:00:00.25']]), '1:00:00.75');
+  assert.equal(show('=AVERAGE(A1:A3)', [['1:00:00'], ['2:00:00'], ['2:00:01']]), '1:40:00');
+});
+
+test('durations: blanks, text, and surrounding whitespace', () => {
+  assert.equal(show('=SUM(A1:A2)', [['1:00:00'], ['']]), '1:00:00');
+  assert.equal(show('=SUM(A1:A2)', [['1:00:00'], ['n/a']]), '1:00:00');
+  assert.equal(show('=A1+A2', [['1:00:00'], ['']]), '1:00:00');
+  assert.equal(show('=A1', [[' 1:00:00 ']]), '1:00:00');
+});
+
+test('durations: malformed three-part values are text', () => {
+  for (const bad of ['1:2:45', '1:60:00', '1:00:60', '1:00:00:00', '１:00']) {
+    assert.equal(evalFormula('=A1', [[bad]]), '#ERR', bad);
+  }
+});
+
+test('durations: two-part values mixed with h:mm:ss are read as m:ss', () => {
+  // Documented ambiguity: `0:30` is 30 seconds here, not 30 minutes.
+  assert.equal(show('=SUM(A1:A2)', [['0:30'], ['0:30:00']]), '0:30:30');
+});
